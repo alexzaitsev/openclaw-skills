@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly VAULT_NAME="OpenClaw"
+readonly ERR_USAGE="ERR_USAGE"
+readonly ERR_CREDENTIAL_UNAVAILABLE="ERR_CREDENTIAL_UNAVAILABLE"
+
+usage_error() {
+  printf '%s\n' "$ERR_USAGE" >&2
+  exit 64
+}
+
+credential_error() {
+  printf '%s\n' "$ERR_CREDENTIAL_UNAVAILABLE" >&2
+  exit 1
+}
+
+is_safe_item_uuid() {
+  local value="${1:-}"
+
+  [[ -n "$value" ]] || return 1
+  [[ "$value" != -* ]] || return 1
+  [[ "$value" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
+}
+
+is_redactable_op_failure() {
+  local stderr_file="$1"
+
+  [[ -s "$stderr_file" ]] || return 1
+
+  grep -Eiq \
+    '1password|(^|[^[:alnum:]_])op([^[:alnum:]_]|$)|unauthori[sz]ed|forbidden|not signed in|sign in|service account|token|vault|item|secret reference|resolve|resolved|authentication|permission' \
+    "$stderr_file"
+}
+
+item_uuid=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --item-uuid)
+      [[ $# -ge 2 ]] || usage_error
+      [[ -z "$item_uuid" ]] || usage_error
+      item_uuid="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      usage_error
+      ;;
+  esac
+done
+
+is_safe_item_uuid "$item_uuid" || usage_error
+[[ $# -gt 0 ]] || usage_error
+
+stderr_file="$(mktemp "${TMPDIR:-/tmp}/openclaw-1password-op-run.XXXXXX")"
+# shellcheck disable=SC2329
+cleanup() {
+  rm -f "$stderr_file"
+}
+trap cleanup EXIT
+
+set +e
+OPENCLAW_USERNAME="op://${VAULT_NAME}/${item_uuid}/username" \
+OPENCLAW_PASSWORD="op://${VAULT_NAME}/${item_uuid}/password" \
+op run -- "$@" 2>"$stderr_file"
+status=$?
+set -e
+
+if [[ "$status" -eq 0 ]]; then
+  exit 0
+fi
+
+if is_redactable_op_failure "$stderr_file"; then
+  credential_error
+fi
+
+while IFS= read -r line; do
+  printf '%s\n' "$line" >&2
+done < "$stderr_file"
+
+exit "$status"

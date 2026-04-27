@@ -1,0 +1,8 @@
+interface:
+  display_name: "1Password"
+  short_description: "Run approved commands with Login secrets"
+  brand_color: "#0A66FF"
+  default_prompt: "Use $1password to run an approved child command with a known 1Password Login item UUID."
+
+policy:
+  allow_implicit_invocation: false
