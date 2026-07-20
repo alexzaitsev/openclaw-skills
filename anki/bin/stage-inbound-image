@@ -10,7 +10,10 @@ import sys
 from pathlib import Path
 
 
-INBOUND_ROOT = Path("/home/claw/.openclaw/media/inbound")
+INBOUND_ROOTS = (
+    Path("/home/claw/.openclaw/media/inbound"),
+    Path("/home/claw/.openclaw/workspaces/anki/media/inbound"),
+)
 STAGING_ROOT = Path(
     "/home/claw/.openclaw/workspaces/anki/.openclaw/inbound-media"
 )
@@ -35,13 +38,14 @@ def detect_image_extension(header: bytes) -> str | None:
 
 def stage_image(source_text: str) -> Path:
     try:
-        inbound_root = INBOUND_ROOT.resolve(strict=True)
+        inbound_roots = tuple(root.resolve(strict=True) for root in INBOUND_ROOTS)
         source = Path(source_text).expanduser().resolve(strict=True)
     except OSError as exc:
         raise StagingError(f"Image path is unavailable: {exc}") from exc
 
-    if not source.is_relative_to(inbound_root):
-        raise StagingError(f"Image must be under {INBOUND_ROOT}.")
+    if not any(source.is_relative_to(root) for root in inbound_roots):
+        allowed_roots = ", ".join(str(root) for root in INBOUND_ROOTS)
+        raise StagingError(f"Image must be under one of: {allowed_roots}.")
     if not source.is_file():
         raise StagingError(f"Image is not a regular file: {source}")
 

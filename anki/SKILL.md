@@ -405,6 +405,67 @@ Only the exact completed dry run asks `Подтверждаешь?`, and it must
 buttons above. If a prior message offered to prepare a dry run and the operator
 answers `да`, run that dry run immediately; do not treat it as execute approval.
 
+### Irregular Spanish verb choice
+
+For every standalone Spanish verb, first determine whether its present
+indicative is irregular. Do this even when the infinitive already exists and
+the operator requested only an edit such as a context change. Treat `ver` as
+irregular (`veo`, `ves`, `ve`, `vemos`, `ven`).
+
+For an irregular verb, prepare both complete alternatives before sending any
+Telegram response:
+
+1. Run the full dry run: the infinitive plus short present-tense notes for
+   `yo`, `tú`, one of `él`/`ella`/`usted`, `nosotros`, `ustedes`, and one of
+   `ellos`/`ellas`. If the infinitive already exists and needs an edit, include
+   its `edit-note` dry run alongside the forms-only `add-batch` dry run.
+2. Run the infinitive-only dry run. When the infinitive already exists, this is
+   the same `edit-note` dry run without the forms batch.
+
+Before either dry run, use `check --deck Español --front` for every exact card
+front in its respective plan. Do not treat another sentence that merely
+contains a conjugated word as satisfying that card. Omit already-present exact
+cards from the addition plan and say so in the Telegram summary.
+
+After both alternatives have completed successfully, send exactly one
+`message` tool call with this concise comparison and these three inline
+buttons, followed by `NO_REPLY`:
+
+```json
+{
+  "action": "send",
+  "channel": "telegram",
+  "accountId": "anki",
+  "target": "142309269",
+  "message": "Глагол <infinitive> неправильный в presente.\n\nС формами: <complete reviewed plan>.\nТолько инфинитив: <reviewed plan>.\n\nЧто добавить?",
+  "buttons": [[
+    {
+      "text": "✅ Да, с формами",
+      "callback_data": "anki:verb:forms",
+      "style": "success"
+    },
+    {
+      "text": "⚠️ Да, только инфинитив",
+      "callback_data": "anki:verb:infinitive",
+      "style": "primary"
+    },
+    {
+      "text": "❌ Нет",
+      "callback_data": "anki:verb:no",
+      "style": "danger"
+    }
+  ]]
+}
+```
+
+These buttons are the confirmation for the already displayed dry-run plans:
+`anki:verb:forms` authorizes only every unchanged operation in the full plan;
+`anki:verb:infinitive` authorizes only every unchanged operation in the
+infinitive-only plan; and `anki:verb:no` cancels all of them. Do not run another
+dry run or ask another confirmation after a button unless the collection state,
+content, or requested scope changed. Do not execute an operation that was not
+shown in the chosen alternative.
+
 ## Confirmation Protocol For All Data Changes
 
 Every data-changing operation requires a two-message confirmation flow,
@@ -468,11 +529,11 @@ current plan's dry run has completed and been shown to the operator.
   and language context make that inference clear, for example `cambian` to
   `cambiar`.
 - For a regular verb, add the infinitive only unless the operator explicitly
-  asks for examples or conjugations.
-- For an irregular verb, preserve the original project workflow: add the
-  infinitive plus short present-tense example notes for `yo`, `tú`, one of
-  `él`/`ella`/`usted`, `nosotros`, `ustedes`, and one of `ellos`/`ellas`. Use
-  Latin American Spanish and never add `vosotros` unless requested.
+  asks for examples or conjugations, then use the normal two-button dry-run
+  confirmation flow.
+- For an irregular verb, use the paired dry-run and three-button choice flow
+  in [Irregular Spanish verb choice](#irregular-spanish-verb-choice). Use Latin
+  American Spanish and never add `vosotros` unless requested.
 - Ask for the language only when the card language is genuinely ambiguous, and
   ask for the study role only when its learning purpose is genuinely ambiguous.
   Do not use role `general` merely to avoid classifying ambiguous material.
@@ -526,7 +587,8 @@ When a request such as "добавь эту фразу" or "add this word" inclu
 ```
 
 Then call the `image` tool on the workspace path printed by the helper. The
-helper accepts only validated images from OpenClaw's inbound-media directory.
+helper accepts only validated images from OpenClaw's managed inbound-media
+locations.
 Do not use `cp`, `mv`, `read`, or the `image` tool directly on the original
 out-of-workspace path. Never ask which phrase or word the operator means before
 inspecting the staged image with model-side vision.
