@@ -412,24 +412,26 @@ indicative is irregular. Do this even when the infinitive already exists and
 the operator requested only an edit such as a context change. Treat `ver` as
 irregular (`veo`, `ves`, `ve`, `vemos`, `ven`).
 
-For an irregular verb, prepare both complete alternatives before sending any
-Telegram response:
+For an irregular verb, determine first whether an exact infinitive card
+already exists.
 
-1. Run the full dry run: the infinitive plus short present-tense notes for
-   `yo`, `tú`, one of `él`/`ella`/`usted`, `nosotros`, `ustedes`, and one of
-   `ellos`/`ellas`. If the infinitive already exists and needs an edit, include
-   its `edit-note` dry run alongside the forms-only `add-batch` dry run.
-2. Run the infinitive-only dry run. When the infinitive already exists, this is
-   the same `edit-note` dry run without the forms batch.
+- If it does **not** exist, prepare both complete alternatives before sending a
+  Telegram response: (a) the infinitive plus its six short present-tense notes,
+  and (b) the infinitive only.
+- If it **does** exist, do **not** offer an infinitive-only alternative. Prepare
+  one full dry run only: the requested `edit-note` for that existing infinitive
+  (if it needs an edit) plus an `add-batch` dry run for the missing short
+  present-tense notes. The forms choice applies that complete plan, including
+  the edit. It never creates a duplicate infinitive card.
 
 Before either dry run, use `check --deck Español --front` for every exact card
 front in its respective plan. Do not treat another sentence that merely
 contains a conjugated word as satisfying that card. Omit already-present exact
 cards from the addition plan and say so in the Telegram summary.
 
-After both alternatives have completed successfully, send exactly one
-`message` tool call with this concise comparison and these three inline
-buttons, followed by `NO_REPLY`:
+When the infinitive is absent, after both alternatives have completed
+successfully, send exactly one `message` tool call with this concise comparison
+and these three inline buttons, followed by `NO_REPLY`:
 
 ```json
 {
@@ -458,6 +460,32 @@ buttons, followed by `NO_REPLY`:
 }
 ```
 
+When the infinitive already exists, after the full plan has completed
+successfully, send exactly one `message` tool call with that plan and **only**
+these two inline buttons, followed by `NO_REPLY`:
+
+```json
+{
+  "action": "send",
+  "channel": "telegram",
+  "accountId": "anki",
+  "target": "142309269",
+  "message": "Глагол <infinitive> неправильный в presente. Инфинитив уже есть; дубликат не будет создан.\\n\\nС формами: <complete reviewed edit-and-forms plan>.\\n\\nЧто добавить?",
+  "buttons": [[
+    {
+      "text": "✅ Да, с формами",
+      "callback_data": "anki:verb:forms",
+      "style": "success"
+    },
+    {
+      "text": "❌ Нет",
+      "callback_data": "anki:verb:no",
+      "style": "danger"
+    }
+  ]]
+}
+```
+
 These buttons are the confirmation for the already displayed dry-run plans:
 `anki:verb:forms` authorizes only every unchanged operation in the full plan;
 `anki:verb:infinitive` authorizes only every unchanged operation in the
@@ -465,6 +493,14 @@ infinitive-only plan; and `anki:verb:no` cancels all of them. Do not run another
 dry run or ask another confirmation after a button unless the collection state,
 content, or requested scope changed. Do not execute an operation that was not
 shown in the chosen alternative.
+
+When an incoming Telegram callback is exactly `anki:verb:forms`, execute the
+unchanged full plan immediately with `--execute` and report the verified
+result. When it is exactly `anki:verb:infinitive`, execute the unchanged
+infinitive-only plan immediately; this callback is valid only when that
+alternative was shown. When it is exactly `anki:verb:no`, make no write and
+confirm cancellation. Do not answer a valid callback with an explanation,
+another question, or another dry run.
 
 ## Confirmation Protocol For All Data Changes
 
