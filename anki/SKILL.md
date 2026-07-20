@@ -391,11 +391,13 @@ front text** first, for example `Карточка: yo miro` or `Карточка
 way a person distinguishes a card. For batch edits, number the cards and show
 the front text beside every set of changes.
 
-The callback values `anki:confirm:yes` and `anki:confirm:no` have exactly the
-same meaning as a later textual confirmation or rejection. Treat `yes` as
-approval only for the unchanged, immediately preceding Anki dry-run plan;
-otherwise ask for a new dry run. Treat `no` as cancellation and make no write.
-Text replies such as `да`, `нет`, questions, and plan edits remain fully
+OpenClaw delivers a normal Telegram inline-button callback to the agent as the
+synthetic user text `callback_data: <callback_data>`. Therefore
+`callback_data: anki:confirm:yes` and `callback_data: anki:confirm:no` have
+exactly the same meaning as a later textual confirmation or rejection. Treat
+`yes` as approval only for the unchanged, immediately preceding Anki dry-run
+plan; otherwise ask for a new dry run. Treat `no` as cancellation and make no
+write. Text replies such as `да`, `нет`, questions, and plan edits remain fully
 supported. Any edit still invalidates the old buttons and requires a new dry
 run with new buttons.
 
@@ -406,6 +408,14 @@ buttons above. If a prior message offered to prepare a dry run and the operator
 answers `да`, run that dry run immediately; do not treat it as execute approval.
 
 ### Irregular Spanish verb choice
+
+This is a **Spanish-only** workflow. Apply its irregularity check, present-tense
+form planning, and `anki:verb:*` buttons only when the requested standalone
+verb is Spanish and targets physical deck `Español`. Never apply any part of
+this workflow to English or to an English card in physical deck `English`.
+English verbs use the ordinary add/edit dry-run and normal `✅ Да` / `❌ Нет`
+confirmation flow, unless the operator explicitly requests another supported
+English operation.
 
 For every standalone Spanish verb, first determine whether its present
 indicative is irregular. Do this even when the infinitive already exists and
@@ -494,12 +504,12 @@ dry run or ask another confirmation after a button unless the collection state,
 content, or requested scope changed. Do not execute an operation that was not
 shown in the chosen alternative.
 
-When an incoming Telegram callback is exactly `anki:verb:forms`, execute the
-unchanged full plan immediately with `--execute` and report the verified
-result. When it is exactly `anki:verb:infinitive`, execute the unchanged
+When an incoming Telegram callback is `callback_data: anki:verb:forms`, execute
+the unchanged full plan immediately with `--execute` and report the verified
+result. When it is `callback_data: anki:verb:infinitive`, execute the unchanged
 infinitive-only plan immediately; this callback is valid only when that
-alternative was shown. When it is exactly `anki:verb:no`, make no write and
-confirm cancellation. Do not answer a valid callback with an explanation,
+alternative was shown. When it is `callback_data: anki:verb:no`, make no write
+and confirm cancellation. Do not answer a valid callback with an explanation,
 another question, or another dry run.
 
 ## Confirmation Protocol For All Data Changes
@@ -564,12 +574,13 @@ current plan's dry run has completed and been shown to the operator.
 - Normalize a requested conjugated form to its infinitive when the screenshot
   and language context make that inference clear, for example `cambian` to
   `cambiar`.
-- For a regular verb, add the infinitive only unless the operator explicitly
-  asks for examples or conjugations, then use the normal two-button dry-run
-  confirmation flow.
-- For an irregular verb, use the paired dry-run and three-button choice flow
-  in [Irregular Spanish verb choice](#irregular-spanish-verb-choice). Use Latin
-  American Spanish and never add `vosotros` unless requested.
+- For a regular **Spanish** verb, add the infinitive only unless the operator
+  explicitly asks for examples or conjugations, then use the normal two-button
+  dry-run confirmation flow.
+- For an irregular **Spanish** verb, use the paired dry-run and three-button
+  choice flow in [Irregular Spanish verb choice](#irregular-spanish-verb-choice).
+  Use Latin American Spanish and never add `vosotros` unless requested. Never
+  use that flow for English.
 - Ask for the language only when the card language is genuinely ambiguous, and
   ask for the study role only when its learning purpose is genuinely ambiguous.
   Do not use role `general` merely to avoid classifying ambiguous material.

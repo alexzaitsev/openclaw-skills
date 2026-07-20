@@ -2,13 +2,17 @@
 
 ## Unreleased
 
-- For an irregular verb whose infinitive already exists, the confirmation now
-  shows only `✅ Да, с формами` and `❌ Нет`; it no longer offers a duplicate
-  infinitive-only path. The forms choice applies the reviewed existing-note edit
-  and missing conjugation forms together.
+- For an irregular **Spanish** verb whose infinitive already exists, the
+  confirmation now shows only `✅ Да, с формами` and `❌ Нет`; it no longer
+  offers a duplicate infinitive-only path. The forms choice applies the
+  reviewed existing-note edit and missing conjugation forms together.
 - Made the required handling of `anki:verb:*` Telegram callbacks explicit:
-  execute the already reviewed selected plan immediately, without a further
-  question or dry run.
+  OpenClaw passes them to the agent as `callback_data: anki:verb:*`; execute
+  the already reviewed selected plan immediately, without a further question
+  or dry run.
+- Made the irregular-verb workflow an explicit Spanish-only boundary. English
+  verbs always use the ordinary add/edit dry run and `✅ Да` / `❌ Нет` buttons;
+  they never receive Spanish conjugation forms or `anki:verb:*` buttons.
 
 - For a new irregular Spanish verb, the agent prepares two reviewed
   alternatives before any write: infinitive plus Latin American present-tense
