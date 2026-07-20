@@ -445,7 +445,7 @@ buttons, followed by `NO_REPLY`:
       "style": "success"
     },
     {
-      "text": "⚠️ Да, только инфинитив",
+      "text": "⚠️ Да, инфинитив",
       "callback_data": "anki:verb:infinitive",
       "style": "primary"
     },

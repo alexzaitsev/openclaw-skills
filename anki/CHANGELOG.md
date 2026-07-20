@@ -5,7 +5,7 @@
 - Irregular Spanish verbs now receive two reviewed alternatives before any
   write: infinitive plus Latin American present-tense forms, or the infinitive
   only. The Telegram choice uses `✅ Да, с формами`,
-  `⚠️ Да, только инфинитив`, and `❌ Нет`; selecting one confirms only its
+  `⚠️ Да, инфинитив`, and `❌ Нет`; selecting one confirms only its
   corresponding displayed dry run. `ver` is explicitly treated as irregular.
 - `stage-inbound-image` accepts only the two managed OpenClaw inbound roots:
   the legacy global location and the dedicated Anki workspace location used by
