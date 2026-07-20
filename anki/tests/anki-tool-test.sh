@@ -529,7 +529,7 @@ grep -F "EXECUTE edit-batch" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "updated_note=7001 front=decir (hablar)" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "updated_note=7003 front=yo digo" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "result: updated=2" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
-grep -F "tags=source:telegram grammar::verbs review-later changed-after-plan" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
+grep -F "tags=source:telegram grammar::verbs changed-after-plan review-later" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "tags=review-later source:telegram grammar::verbs" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "sync: requested" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 
