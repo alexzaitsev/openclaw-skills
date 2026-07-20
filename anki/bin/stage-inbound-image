@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""Stage a validated OpenClaw inbound image inside the Anki workspace."""
+
+from __future__ import annotations
+
+import argparse
+import re
+import shutil
+import sys
+from pathlib import Path
+
+
+INBOUND_ROOT = Path("/home/claw/.openclaw/media/inbound")
+STAGING_ROOT = Path(
+    "/home/claw/.openclaw/workspaces/anki/.openclaw/inbound-media"
+)
+MAX_BYTES = 10 * 1024 * 1024
+
+
+class StagingError(Exception):
+    pass
+
+
+def detect_image_extension(header: bytes) -> str | None:
+    if header.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if header.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if header.startswith(b"RIFF") and header[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def stage_image(source_text: str) -> Path:
+    try:
+        inbound_root = INBOUND_ROOT.resolve(strict=True)
+        source = Path(source_text).expanduser().resolve(strict=True)
+    except OSError as exc:
+        raise StagingError(f"Image path is unavailable: {exc}") from exc
+
+    if not source.is_relative_to(inbound_root):
+        raise StagingError(f"Image must be under {INBOUND_ROOT}.")
+    if not source.is_file():
+        raise StagingError(f"Image is not a regular file: {source}")
+
+    size = source.stat().st_size
+    if size <= 0 or size > MAX_BYTES:
+        raise StagingError(
+            f"Image size must be between 1 byte and {MAX_BYTES} bytes."
+        )
+
+    with source.open("rb") as handle:
+        extension = detect_image_extension(handle.read(12))
+    if extension is None:
+        raise StagingError("Unsupported or invalid image signature.")
+
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", source.stem)[:120]
+    destination = STAGING_ROOT / f"{safe_stem or 'inbound-image'}{extension}"
+    STAGING_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+    STAGING_ROOT.chmod(0o700)
+    shutil.copyfile(source, destination)
+    destination.chmod(0o600)
+    return destination
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Stage a validated OpenClaw inbound image for Anki vision."
+    )
+    parser.add_argument("--source", required=True, help="Inbound image path")
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    try:
+        print(stage_image(args.source))
+    except StagingError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

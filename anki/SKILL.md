@@ -1,0 +1,580 @@
+---
+name: anki
+description: REQUIRED for every Anki request. Read this skill before acting; use only anki-tool for direct AnkiConnect checks and confirmed additions.
+bins: ["python3"]
+---
+
+# Anki
+
+Use this skill to manage the operator's language-organized Anki collection
+through local AnkiConnect on the OpenClaw VM. Physical decks represent
+languages; each language has its own study-role tags in `DECKS.md`.
+
+For every request involving Anki cards, decks, checks, or additions, read this
+file before taking any action. The deployed `anki-tool` is the only permitted
+AnkiConnect client. Never substitute an inline Python snippet, `curl`, or a
+generic shell command, even for a read-only lookup.
+
+## Critical Confirmation UI Rule
+
+After **every successful dry run for a data-changing operation**, the next
+outbound Telegram response must be exactly one `message` tool call with the
+required `✅ Да` and `❌ Нет` inline buttons described below, followed by
+`NO_REPLY`. This includes `edit-note` and `edit-batch`, even when the operator
+only asked to add examples or context to an existing card.
+
+If the proposed reply contains `Подтверждаешь?`, do **not** send it as normal
+assistant text. Send it through the `message` tool with the buttons. A plain
+text plan asking for confirmation is a contract failure, not a fallback UI.
+
+## Reviewed Command Surface
+
+The exact `anki-tool` commands documented in this skill are the normal Anki
+tool surface. For a machine-readable current inventory, use this read-only
+command instead of inspecting files or source code:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool capabilities --json
+```
+
+It reports reviewed commands, whether they mutate Anki, dry-run support, and
+the current model fields. If a requested operation is absent from that
+inventory, report that it is not supported; do not invent or implement it in
+the Telegram session.
+
+The agent must not initiate `find`, `ls`, `sed`, `grep`, `rg`, `cat`, shell
+loops, inline Python, `curl`, generic shell commands, or direct source-file
+inspection. Those actions are permitted only when the operator explicitly
+initiates that exact non-`anki-tool` action. This does not authorize the agent
+to infer such permission from a general Anki request.
+
+## Runtime Contract
+
+Anki must already be running under `claw` through:
+
+```bash
+systemctl --user status anki.service --no-pager
+```
+
+AnkiConnect must answer on loopback only:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool ping
+```
+
+The expected AnkiConnect URL is `http://127.0.0.1:8765`. Override it with
+`ANKI_CONNECT_URL` only when the operator explicitly asks.
+
+Every successful mutating command requests Anki sync once after its local
+changes have been verified. This AnkiConnect version acknowledges the request
+but does not expose sync completion status, so report `sync: requested` and do
+not claim that synchronization has completed. The operator's other Anki client
+must still sync to download server-side changes.
+
+For additions, treat the physical language deck and study role as separate
+required values. Spanish content goes to physical deck `Español`; `--role`
+selects one Spanish role and the helper creates its `deck:<role>` tag. Never
+use a role name as the physical deck and never derive `deck:Español` from the
+physical deck. The active `English` deck currently has exactly one approved
+role, `general`; use it for English additions until `DECKS.md` defines a more
+specific English role table.
+
+Before every addition, read the deployed `DECKS.md` to resolve both values and
+to confirm that the requested language's role table exists. This required
+reference read is allowed; the source-inspection prohibition above applies to
+helper implementation files, not to `DECKS.md`.
+
+## Supported Operations
+
+List decks:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool decks
+```
+
+Inspect one deck before answering questions about it or proposing deletion:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool deck-info \
+  --deck Español
+```
+
+`deck-info` is read-only. It reports the exact deck name, card count, unique
+note count, child decks, and whether it is empty. If child decks exist, report
+them; `delete-deck` deliberately refuses to delete a parent deck until each
+child deck is handled explicitly.
+
+Create a new physical deck through the normal dry-run and confirmation flow:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool create-deck \
+  --deck English
+```
+
+The dry run prints `plan_id`. After explicit confirmation, rerun the same
+command with `--execute --plan-id <reviewed-plan-id>`. The helper verifies the
+deck exists and requests sync once.
+
+Delete one physical deck only after its mandatory emptiness check:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool delete-deck \
+  --deck English
+```
+
+This dry run always prints card and note counts plus `empty`. For an empty
+deck, execute only after the normal explicit confirmation with
+`--execute --plan-id <reviewed-plan-id>`. For a non-empty deck, the plan says
+that confirmation is required and execution must additionally include
+`--confirm-nonempty`. That flag is permitted only after the operator has
+explicitly confirmed this exact plan; it deletes the reported cards together
+with the deck. Never add the flag merely because the original request asked to
+delete the deck. The installed AnkiConnect requires its `cardsToo=true` API
+mode even for an empty deck; the helper uses it only after this verified count,
+so an empty-deck deletion still has zero cards to remove.
+
+Read the live card-field schema before every `add-basic` or `add-batch` dry
+run. Do not assume that the model will always contain only `Front` and `Back`:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool fields
+```
+
+Use the reported field names exactly. `Front`, `Back`, and optional `context`
+remain normal arguments. If the model has additional fields, include a value
+for each relevant one with `--field NAME VALUE` for one note or
+`--note-field INDEX NAME VALUE` for a batch. This lookup is required even when
+the request is ordinary: it makes the agent adapt to a changed card schema
+before it prepares the dry run.
+
+Check whether an exact Spanish front already exists (optionally in one deck):
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool check \
+  --deck Español \
+  --front "decir"
+```
+
+`check` is read-only. Use it for requests such as "check whether `decir`
+exists, and add it if it does not." It is implemented by the deployed Python
+helper, which calls AnkiConnect directly at `127.0.0.1:8765`; do not replace it
+with inline Python, `curl`, or another shell command. If `result: present`,
+report the match and do not prepare an addition. If `result: absent`, prepare a
+normal dry run and follow the confirmation protocol below before adding.
+
+Search existing notes and show their note IDs and text fields:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool search \
+  --deck Español \
+  --query "yo digo"
+```
+
+`search` is read-only. Use it when the operator asks to inspect several notes,
+find conjugated forms, or collect note IDs before an edit. It prints the
+matching note IDs, front, back, and context. For every lookup, use `check` or
+`search`; never use inline Python, `curl`, raw `findNotes`, `notesInfo`, or any
+other direct AnkiConnect request.
+
+Request sync without another mutation:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool sync
+```
+
+Add a basic Spanish note:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool add-basic \
+  --deck Español \
+  --role general \
+  --front "la palabra" \
+  --back "word" \
+  --context "only if needed for disambiguation" \
+  --tag source:telegram
+```
+
+Every newly created note automatically receives the study-role tag derived
+from `--role` (for example, `--role general` adds `deck:general`). This is in
+addition to any requested tag such as `source:telegram`; do not also supply the
+role tag with `--tag`. The same invariant applies to `add-batch` and
+`import-json`. No tag is derived from the physical language deck.
+
+The command is a dry run by default. Add `--execute` only after reviewing the
+printed plan.
+
+Prepare multiple notes as one reviewed operation:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool add-batch \
+  --note Español general "¿Puedes cambiar tus planes?" \
+    "Ты можешь изменить свои планы?" "optional disambiguation" \
+  --note Español verbos "cambiar" "менять; изменять" \
+  --tag source:telegram
+```
+
+Use `add-batch` whenever one operator request asks for multiple notes. It is a
+dry run by default. After one confirmation, rerun the same complete batch with
+`--execute`; the helper verifies every note's deck and requests sync once.
+Each `--note` takes `LANGUAGE_DECK ROLE FRONT BACK` and optional `CONTEXT`.
+Omit the fifth value when no context is needed. Every item has its own role so
+one batch can add a sentence tagged `deck:general` and a verb tagged
+`deck:verbos` to the same `Español` deck. For a changed model schema, attach
+extra values to the corresponding one-based batch item, for example:
+
+```bash
+  --note-field 1 "Example" "Puedes cambiar los planes."
+```
+
+Move every card generated by one note to another physical language deck:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool move-note \
+  --note-id 123456789 \
+  --target Español
+```
+
+Use the note ID reported by the immediately preceding `add-basic` operation
+when the operator says to move "it" or "that card." The command is a dry run by
+default; rerun it with `--execute` only after explicit confirmation. Do not
+inspect the workspace or improvise Python or shell commands for this workflow.
+
+Edit the text fields of one existing note:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool edit-note \
+  --note-id 123456789 \
+  --front "decir" \
+  --back "говорить; сказать" \
+  --context "англ. say" \
+  --add-tag source:telegram \
+  --remove-tag review-later
+```
+
+`edit-note` is a dry run by default. It can change any combination of `Front`,
+`Back`, `context`, and tags; use `--clear-context` to remove an existing
+context. Use repeatable `--add-tag` and `--remove-tag` for existing notes.
+Tags apply to the note and therefore to all cards generated from it; Anki
+creates a tag automatically when it is first added. The command reads the
+existing note, shows current and proposed fields and tags, and verifies both
+after an execute-mode edit. Run it with `--execute` only after a later explicit
+confirmation of that exact dry run. Media editing is deliberately out of scope:
+if an edited field contains image, audio, or video markup, the command fails
+rather than risk discarding the media.
+
+Edit several existing notes as one reviewed operation:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool edit-batch \
+  --note 1780781752051 "я смотрю" "англ. to watch" \
+  --note 1780781752083 "ты смотришь" "англ. to watch" \
+  --add-tag source:telegram \
+  --note-add-tag 1780781752051 grammar::verbs
+```
+
+Each `--note` takes `NOTE_ID BACK` and optional `CONTEXT`. Use `=` for `BACK`
+or `CONTEXT` to keep its current value; pass an empty quoted context (`""`) to
+clear it. Use repeatable `--add-tag` / `--remove-tag` for every note in the
+batch, and `--note-add-tag NOTE_ID TAG` / `--note-remove-tag NOTE_ID TAG` for
+one note. Tags are delta operations: existing unrelated tags are preserved,
+not replaced. `edit-batch` is dry-run by default and prints `plan_id`; its
+`--execute` invocation must include that exact `--plan-id`. It verifies every
+changed note after execution and requests one sync for the whole batch. Use it
+whenever the same request affects more than one existing note. Never implement
+a batch edit with a shell loop, inline Python, or repeated raw AnkiConnect
+calls.
+
+Legacy migration only: add an old category deck's matching role tag before
+consolidating it, without replacing any current tags:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool tag-decks --all
+```
+
+`tag-decks --all` covers every live deck and adds the namespaced tag
+`deck:<deck-name>` (for example, `deck:general`) to each represented note.
+The dry run is an aggregate per-deck summary only: cards, unique notes, tags to
+add, and notes already tagged. It never dumps a full card list. It prints a
+`plan_id`; after Telegram confirmation, rerun it with
+`--execute --plan-id <reviewed-plan-id>`. Existing tags are preserved; only the
+missing legacy role tag is added. This is not a routine command after the
+language-deck migration. Never run it against `Español` or `English`, because
+that would create invalid `deck:Español` or `deck:English` tags. Use it only
+when the operator explicitly requests migration of a remaining legacy category
+deck. Do not implement this workflow with a shell loop or repeated `search`.
+
+Import the existing JSON card format:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool import-json \
+  --source import-cards/cards.json
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool import-json \
+  --source import-cards/cards.json \
+  --execute
+```
+
+Each import group must contain both its physical language `deck` and its
+language-specific study `role`, for example
+`{"deck":"Español","role":"general","cards":[...]}`. The helper adds
+`deck:<role>` to every imported note.
+
+Legacy administrative operation: merge Spanish category decks into the
+Spanish language deck while preserving original deck history tags:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool merge-decks \
+  --source adjetivos \
+  --source reglas \
+  --source verbos \
+  --target Español \
+  --tag-original-deck
+```
+
+The merge command is also dry-run by default. It must print counts by source
+deck before any execute-mode run.
+
+## Telegram Confirmation Buttons
+
+For **every data-changing Anki operation** (`create-deck`, `delete-deck`,
+`add-basic`, `add-batch`, `edit-note`, `edit-batch`, `tag-decks`, `move-note`,
+`import-json`, or `merge-decks`) in the dedicated
+Anki Telegram DM, send its successful dry-run plan as one `message` tool call
+with these inline buttons. This is required for edits as well as additions.
+End that same message with `Подтверждаешь?` After the tool call, do not send a
+second plain-text response or repeat the plan; the inline buttons are the
+primary UI:
+
+```json
+{
+  "action": "send",
+  "channel": "telegram",
+  "accountId": "anki",
+  "target": "142309269",
+  "message": "<the complete current dry-run plan>\n\nПодтверждаешь?",
+  "buttons": [[
+    {
+      "text": "✅ Да",
+      "callback_data": "anki:confirm:yes",
+      "style": "success"
+    },
+    {
+      "text": "❌ Нет",
+      "callback_data": "anki:confirm:no",
+      "style": "danger"
+    }
+  ]]
+}
+```
+
+Do **not** paste the helper's raw, line-by-line dry-run output into Telegram.
+Turn it into a short, readable plan while preserving the information needed to
+approve the actual change:
+
+- For an addition: physical language deck, study role, front, back, specified
+  context, populated extra fields, tags, and duplicate-check result.
+- For an edit: note ID, only fields that change as `old → new`, tag additions
+  and removals, and explicitly say when no tags change. Omit unchanged fields.
+- For a move, import, or merge: source and destination plus the affected note
+  or item count and any tag changes.
+- For deck creation: the exact new deck name.
+- For deck deletion: the exact deck name, card and note counts, whether it is
+  empty, and a clear warning that a non-empty deletion removes its cards.
+
+Use `&lt;none&gt;` only when it makes a proposed change clear, such as a newly added
+context. Never hide a changed field or tag merely to shorten the message. The
+terminal dry-run remains the authoritative execution check; the Telegram plan
+is its concise approval view.
+
+The Telegram approval view must identify each existing note by its **current
+front text** first, for example `Карточка: yo miro` or `Карточка: mirar`.
+`note ID` may appear as a secondary technical detail but must never be the only
+way a person distinguishes a card. For batch edits, number the cards and show
+the front text beside every set of changes.
+
+The callback values `anki:confirm:yes` and `anki:confirm:no` have exactly the
+same meaning as a later textual confirmation or rejection. Treat `yes` as
+approval only for the unchanged, immediately preceding Anki dry-run plan;
+otherwise ask for a new dry run. Treat `no` as cancellation and make no write.
+Text replies such as `да`, `нет`, questions, and plan edits remain fully
+supported. Any edit still invalidates the old buttons and requires a new dry
+run with new buttons.
+
+Never send an unbuttoned message that asks the operator whether to prepare or
+apply an Anki data change. Preparing a dry run needs no confirmation: run it.
+Only the exact completed dry run asks `Подтверждаешь?`, and it must use the
+buttons above. If a prior message offered to prepare a dry run and the operator
+answers `да`, run that dry run immediately; do not treat it as execute approval.
+
+## Confirmation Protocol For All Data Changes
+
+Every data-changing operation requires a two-message confirmation flow,
+without exception:
+
+1. On an initial request, run any needed read-only check first, then **always**
+   run the relevant dry run before asking for confirmation. A
+   successful `check` is not a substitute for an add dry run. Keep the complete
+   helper output as the execution check, then show the concise Telegram
+   approval view described above and explicitly ask whether to apply that exact
+   plan.
+2. Do **not** use `--execute` in that same turn. An OpenClaw exec approval,
+   including `allow-once`, authorizes a command invocation only; it is never
+   confirmation to add an Anki note.
+3. Use `--execute` only after a later, explicit operator reply confirming the
+   currently displayed plan. For `edit-batch`, rerun the exact command with
+   `--execute --plan-id <reviewed-plan-id>`; if the live note fields or tags
+   changed in the meantime, the helper rejects it as stale and requires a new
+   dry run.
+4. If the operator replies with an edit, correction, alternative translation,
+   deck change, added item, or any other modification, do not execute the old
+   plan. Apply the edit, rerun the complete dry run, display the revised plan,
+   and ask for a new explicit confirmation. Execute only after a subsequent
+   confirmation of that revised plan.
+
+This applies equally to `create-deck`, `delete-deck`, `add-basic`, `add-batch`,
+`edit-note`, `edit-batch`, `tag-decks`, `move-note`, `import-json`, and
+`merge-decks`. Never
+infer confirmation from the original request, an exec approval, or a reply
+that changes the proposed content. Never ask for confirmation before the
+current plan's dry run has completed and been shown to the operator.
+
+## Language Rules
+
+- The learner studies Latin American Spanish.
+- Prefer Latin American usage and avoid Spain-only forms unless requested.
+- Choose the physical deck by language, independently of the study role.
+  Spanish cards always go to `Español`. English cards go to `English`; its
+  current sole role is `general` and creates the tag `deck:general`.
+- Infer the language-specific study role from `DECKS.md` whenever the content
+  has a clear fit. Do not ask the operator to choose a role in that case.
+- For Spanish, tag standalone adjectives with `deck:adjetivos`.
+- For Spanish, tag standalone verbs, conjugated forms, and sentences explicitly
+  requested as verb or conjugation practice with `deck:verbos`.
+- For Spanish, tag standalone grammar rules and grammar-focused examples with
+  `deck:reglas`.
+- For Spanish, tag fixed expressions, conversational phrases, nouns, adverbs,
+  and other material that clearly does not fit a specialized role with
+  `deck:general`.
+- Default an ordinary Spanish screenshot phrase or sentence to role `general`.
+  The mere presence of a verb does not make a sentence verb practice. Choose
+  role `verbos` only when the operator's request or the exercise clearly
+  focuses on a verb or conjugation.
+- Treat each requested item independently. In "add this sentence and the verb
+  cambiar," both notes belong in physical deck `Español`; the ordinary
+  sentence gets `deck:general` and the standalone infinitive gets
+  `deck:verbos`. Mentioning a standalone verb does not turn the accompanying
+  sentence into verb practice. Never silently drop one item from a compound
+  request.
+- Normalize a requested conjugated form to its infinitive when the screenshot
+  and language context make that inference clear, for example `cambian` to
+  `cambiar`.
+- For a regular verb, add the infinitive only unless the operator explicitly
+  asks for examples or conjugations.
+- For an irregular verb, preserve the original project workflow: add the
+  infinitive plus short present-tense example notes for `yo`, `tú`, one of
+  `él`/`ella`/`usted`, `nosotros`, `ustedes`, and one of `ellos`/`ellas`. Use
+  Latin American Spanish and never add `vosotros` unless requested.
+- Ask for the language only when the card language is genuinely ambiguous, and
+  ask for the study role only when its learning purpose is genuinely ambiguous.
+  Do not use role `general` merely to avoid classifying ambiguous material.
+- Do not infer additional English roles from the Spanish taxonomy. Until
+  `DECKS.md` expands the English table, every English card uses its sole
+  approved role, `general`.
+- Use `usted` as `вы (один)` and `ustedes` as `вы (много)` in Russian.
+- Use `context` only for disambiguation and never to reveal the answer.
+- If the operator expands an edit from one conjugation to "other forms", find
+  every matching requested form and the infinitive when it was included in the
+  original request. Present one `edit-batch` dry run for that complete set; do
+  not silently keep the edit limited to `yo` or ask a second yes/no question
+  before preparing the dry run.
+
+## Hard Boundaries
+
+- Do not expose AnkiConnect beyond `127.0.0.1`.
+- Do not edit Anki's SQLite collection directly.
+- Do not move or delete cards without a dry run and explicit operator approval.
+- Do not delete a deck before `delete-deck` has completed its mandatory
+  emptiness check. If the deck is non-empty, require a later explicit approval
+  of the displayed card count and use `--confirm-nonempty` only for that
+  approved execution.
+- Do not use `general`, `verbos`, `reglas`, or `adjetivos` as physical target
+  decks. They are Spanish study roles represented by `deck:*` tags inside
+  `Español`.
+- Do not create `deck:Español` or `deck:English` as study-role tags.
+- Do not edit a note without an `edit-note` dry run and explicit operator
+  approval. Do not use `updateNoteFields` through inline Python or another raw
+  AnkiConnect request.
+- For read-only card discovery, use only `check` or `search`; do not run raw
+  `findNotes` or `notesInfo` requests.
+- Do not delete a parent deck with child decks; the helper refuses it so child
+  decks must be inspected and deleted explicitly.
+- Do not initiate broad shell commands or source inspection. Unless the
+  operator explicitly requests that exact action, use the deployed
+  `/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool` executable.
+  It is the reviewed Python client for direct AnkiConnect access; do not
+  improvise inline Python, `curl`, or raw AnkiConnect requests.
+- Do not use the main OpenClaw Telegram chat for this workflow once the
+  dedicated Anki Telegram account exists.
+
+## Screenshot Workflow
+
+When a request such as "добавь эту фразу" or "add this word" includes a
+`[media attached: <path> ...]` line, first stage that exact local path with:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/stage-inbound-image \
+  --source "<path>"
+```
+
+Then call the `image` tool on the workspace path printed by the helper. The
+helper accepts only validated images from OpenClaw's inbound-media directory.
+Do not use `cp`, `mv`, `read`, or the `image` tool directly on the original
+out-of-workspace path. Never ask which phrase or word the operator means before
+inspecting the staged image with model-side vision.
+
+For a completed Duolingo translation exercise, use the submitted answer as the
+target Spanish content. It is usually shown as green selected words above the
+divider. Ignore unused word-bank choices, navigation labels, status text, and
+other interface copy. Use the prompt or speech-bubble translation to determine
+meaning, not as the card front.
+
+After visual inspection, extract the Spanish answer, use physical deck
+`Español`, and infer its Spanish study role using the rules above. Do not ask
+for a role when the classification is clear. For example, `por supuesto` is a
+fixed expression and uses role `general`, which creates `deck:general`.
+
+Unless the operator requests a different format, prepare one basic card with
+the Spanish word or phrase on the front and a concise Russian translation on
+the back. Use text visible in another language only to understand meaning; the
+card back should still be Russian. Add examples only when the operator asks for
+examples or when a requested verb workflow requires conjugation examples.
+
+Treat requests such as "добавь эту фразу" as sufficient intent to prepare the
+normal dry-run plan. Call
+`/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool add-basic`
+with `--deck Español --role <inferred-role>` and without `--execute`, report
+the language deck, inferred role, and card fields, and ask only for confirmation
+to execute the reviewed plan in a later message. Never treat an exec approval
+as that confirmation.
+
+For compound screenshot requests, call `add-batch` once with every requested
+note. Show the complete dry-run plan and ask for one confirmation. Do not run
+only the first item and merely mention the others in prose.
+
+If the operator edits a displayed screenshot plan, apply the edit to the full
+set of notes and rerun `add-basic` or `add-batch` without `--execute`. Show the
+new dry run and ask again. Do not execute the earlier plan or treat the edit as
+approval.
+
+After `add-basic --execute`, rely on its `verified_deck` output rather than the
+requested deck shown in the plan. For Spanish it must report `Español`. The
+helper corrects note-model deck overrides and fails if Anki does not place
+every generated card in the requested language deck.
+Also report the helper's sync result. If the local operation succeeded but sync
+failed, say so explicitly and do not imply that the note was rolled back.
+
+Ask for clarification only after staging and inspecting the image and finding
+that the Spanish answer is unreadable, multiple submitted answers remain
+plausible, the Russian meaning cannot be inferred safely, or the learning
+purpose is genuinely ambiguous between study roles. If staging or the
+image tool fails, report that specific failure instead of asking the operator
+which visible phrase they mean.
