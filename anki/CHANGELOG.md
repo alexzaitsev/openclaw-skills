@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Irregular Spanish verbs now receive two reviewed alternatives before any
+  write: infinitive plus Latin American present-tense forms, or the infinitive
+  only. The Telegram choice uses `✅ Да, с формами`,
+  `⚠️ Да, только инфинитив`, and `❌ Нет`; selecting one confirms only its
+  corresponding displayed dry run. `ver` is explicitly treated as irregular.
+- `stage-inbound-image` accepts only the two managed OpenClaw inbound roots:
+  the legacy global location and the dedicated Anki workspace location used by
+  current Telegram attachment delivery. It still rejects arbitrary paths,
+  validates the image signature and size, and stages the copy with mode `0600`.
 - Physical decks now represent languages: Spanish additions target `Español`,
   while `English` is reserved for a future English deck with its own role
   taxonomy. The former Spanish category decks are represented by
