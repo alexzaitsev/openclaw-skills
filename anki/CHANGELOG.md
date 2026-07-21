@@ -19,6 +19,8 @@
 - Simplified report wording to `Последние 7 дней`, labelled mature items as
   `элементов закреплено`, and replaced percentage-point deltas with the prior
   week's retention value.
+- Moved the report and run dates into the `Вчера` and `Колода сейчас` headings
+  and removed the separate timezone line.
 - For an irregular **Spanish** verb whose infinitive already exists, the
   confirmation now shows only `✅ Да, с формами` and `❌ Нет`; it no longer
   offers a duplicate infinitive-only path. The forms choice applies the

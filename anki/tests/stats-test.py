@@ -34,7 +34,7 @@ def review(when: str, card: int, rating: int, duration: int) -> list[int]:
 
 class StatisticsTest(unittest.TestCase):
     def test_russian_formatting_is_deterministic_and_declined(self) -> None:
-        self.assertEqual(_display_date(date(2026, 7, 19)), "вс, 19 июл")
+        self.assertEqual(_display_date(date(2026, 7, 19)), "вс 19 июля")
         self.assertEqual(format_duration(3_387_000), "56 мин 27 с")
         self.assertEqual(format_duration(3_600_000), "1 ч 0 мин")
         forms = ("ответ", "ответа", "ответов")
@@ -134,13 +134,14 @@ class StatisticsTest(unittest.TestCase):
         }
         report = render_report("Español", history, state)
         self.assertIn("**🇪🇸 Испанский · Español**", report)
-        self.assertIn("Отчёт за вс, 19 июл · America/Edmonton", report)
-        self.assertIn("**Вчера**", report)
+        self.assertNotIn("Отчёт за", report)
+        self.assertNotIn("America/Edmonton", report)
+        self.assertIn("**Вчера · вс 19 июля**", report)
         self.assertIn("**Запоминание 100%** (1/1)", report)
         self.assertIn("**Последние 7 дней**", report)
         self.assertIn("Вс 1 · 100%", report)
         self.assertIn("**1 ответ** · 1/7 дней", report)
-        self.assertIn("**Колода сейчас**", report)
+        self.assertIn("**Колода сейчас · пн 20 июля**", report)
         self.assertIn(
             "**Доступно сейчас:** новых 1 · "
             "изучаются 0 · к повторению 2",
@@ -154,9 +155,13 @@ class StatisticsTest(unittest.TestCase):
 
         compact = render_compact_report("Español", history, state)
         self.assertIn("**🇪🇸 Испанский · Español**", compact)
-        self.assertIn("**Вчера:** 1 ответ", compact)
+        self.assertIn("**Вчера · вс 19 июля:** 1 ответ", compact)
         self.assertIn("**7 дней:** **1 ответ**", compact)
-        self.assertIn("**Колода:** 1 учебный элемент", compact)
+        self.assertIn(
+            "**Колода сейчас · пн 20 июля:** "
+            "1 учебный элемент",
+            compact,
+        )
         self.assertIn("0 элементов закреплено", compact)
         self.assertIn(
             "**Доступно:** новых 1 · изучаются 0 · "

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 
@@ -13,18 +13,18 @@ DECK_LABELS = {
 }
 WEEKDAY_LABELS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
 MONTH_LABELS = (
-    "янв",
-    "фев",
-    "мар",
-    "апр",
+    "января",
+    "февраля",
+    "марта",
+    "апреля",
     "мая",
-    "июн",
-    "июл",
-    "авг",
-    "сен",
-    "окт",
-    "ноя",
-    "дек",
+    "июня",
+    "июля",
+    "августа",
+    "сентября",
+    "октября",
+    "ноября",
+    "декабря",
 )
 TELEGRAM_LIMIT = 4096
 
@@ -32,6 +32,7 @@ TELEGRAM_LIMIT = 4096
 def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> str:
     flag, label = DECK_LABELS[deck]
     report_date = date.fromisoformat(history["report_date"])
+    run_date = report_date + timedelta(days=1)
     yesterday = history["yesterday"]
     current = history["current"]
     previous = history["previous"]
@@ -65,9 +66,8 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
 
     lines = [
         f"**{flag} {label} · {deck}**",
-        f"Отчёт за {_display_date(report_date)} · {history['timezone']}",
         "",
-        "**Вчера**",
+        f"**Вчера · {_display_date(report_date)}**",
         (
             f"{yesterday_answers} · {yesterday_cards} · "
             f"{format_duration(yesterday['duration_ms'])}"
@@ -98,7 +98,7 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
             ),
             _comparison_line(current, previous),
             "",
-            "**Колода сейчас**",
+            f"**Колода сейчас · {_display_date(run_date)}**",
             (
                 f"{learning_items} · начато {state['introduced_items']}"
             ),
@@ -120,6 +120,8 @@ def render_compact_report(
     deck: str, history: dict[str, Any], state: dict[str, int]
 ) -> str:
     flag, label = DECK_LABELS[deck]
+    report_date = date.fromisoformat(history["report_date"])
+    run_date = report_date + timedelta(days=1)
     yesterday = history["yesterday"]
     current = history["current"]
     yesterday_answers = _count(
@@ -142,9 +144,10 @@ def render_compact_report(
     )
     return "\n".join(
         [
-            f"**{flag} {label} · {deck}** · {history['report_date']}",
+            f"**{flag} {label} · {deck}**",
             (
-                f"**Вчера:** {yesterday_answers} · "
+                f"**Вчера · {_display_date(report_date)}:** "
+                f"{yesterday_answers} · "
                 f"запоминание {format_percent(yesterday['true_retention'])}"
             ),
             (
@@ -153,7 +156,8 @@ def render_compact_report(
                 f"{current['days_studied']}/7 дней"
             ),
             (
-                f"**Колода:** {learning_items} · {mature_items} · "
+                f"**Колода сейчас · {_display_date(run_date)}:** "
+                f"{learning_items} · {mature_items} · "
                 f"карточек {state['cards']}"
             ),
             (
@@ -182,7 +186,7 @@ def format_percent(value: float | None) -> str:
 
 def _display_date(value: date) -> str:
     weekday = WEEKDAY_LABELS[value.weekday()].lower()
-    return f"{weekday}, {value.day} {MONTH_LABELS[value.month - 1]}"
+    return f"{weekday} {value.day} {MONTH_LABELS[value.month - 1]}"
 
 
 def _count(value: int, one: str, few: str, many: str) -> str:

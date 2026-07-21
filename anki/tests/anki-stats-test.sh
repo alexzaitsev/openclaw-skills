@@ -122,6 +122,11 @@ grep -F '"enabled": false' "$TMP_DIR/settings.json" >/dev/null
 
 "$ROOT/bin/anki-stats" preview --deck Español > "$TMP_DIR/preview.txt"
 grep -F "**🇪🇸 Испанский · Español**" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "**Вчера · вс 19 июля**" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "**Колода сейчас · пн 20 июля**" "$TMP_DIR/preview.txt" >/dev/null
+if grep -F "Отчёт за" "$TMP_DIR/preview.txt" >/dev/null; then
+  exit 1
+fi
 grep -F "3 ответа · 2 карточки · 6 с" "$TMP_DIR/preview.txt" >/dev/null
 grep -F "**Запоминание 50%** (1/2)" "$TMP_DIR/preview.txt" >/dev/null
 grep -F "2 учебных элемента · начато 1" "$TMP_DIR/preview.txt" >/dev/null
