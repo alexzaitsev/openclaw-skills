@@ -121,15 +121,15 @@ grep -F '"declaration_key": "anki-stats:espanol"' "$TMP_DIR/settings.json" >/dev
 grep -F '"enabled": false' "$TMP_DIR/settings.json" >/dev/null
 
 "$ROOT/bin/anki-stats" preview --deck Español > "$TMP_DIR/preview.txt"
-grep -F "🇪🇸 Spanish · Español" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "3 answers · 2 cards · 6s" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "True retention 50% (1/2)" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "2 learning items · 1 introduced" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "1 mature learning items · 4 cards" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "Due now: 12 new · 4 learning · 63 review" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "**🇪🇸 Испанский · Español**" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "3 ответа · 2 карточки · 6 с" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "**Запоминание 50%** (1/2)" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "2 учебных элемента · начато 1" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "1 элемент закреплён · 4 карточки" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "**Доступно сейчас:** новых 12 · изучаются 4 · к повторению 63" "$TMP_DIR/preview.txt" >/dev/null
 
 "$ROOT/bin/anki-stats-worker" --deck Español > "$TMP_DIR/worker.txt"
-grep -F "🇪🇸 Spanish · Español" "$TMP_DIR/worker.txt" >/dev/null
+grep -F "**🇪🇸 Испанский · Español**" "$TMP_DIR/worker.txt" >/dev/null
 [[ "$(grep -c '^sync$' "$TMP_DIR/actions.log")" -eq 1 ]]
 
 "$ROOT/bin/anki-stats" configure \

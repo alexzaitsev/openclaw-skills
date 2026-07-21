@@ -440,9 +440,9 @@ plan revision changed, report the rejection and do not improvise a cron
 command.
 
 The scheduled worker reads aggregate data through loopback AnkiConnect, prints
-one deterministic plain-text report, and never calls Telegram or a model. The
-agent must not run it directly, add it to agent exec approvals, or expose a
-general OpenClaw cron administration command.
+one deterministic Russian-language, Markdown-formatted report, and never calls
+Telegram or a model. The agent must not run it directly, add it to agent exec
+approvals, or expose a general OpenClaw cron administration command.
 
 ## Telegram Confirmation Buttons
 

@@ -14,6 +14,11 @@
 
 ## Unreleased
 
+- Added a restrained Markdown hierarchy and Russian localization to statistics
+  reports, including deterministic dates, weekdays, durations, and plurals.
+- Simplified report wording to `Последние 7 дней`, labelled mature items as
+  `элементов закреплено`, and replaced percentage-point deltas with the prior
+  week's retention value.
 - For an irregular **Spanish** verb whose infinitive already exists, the
   confirmation now shows only `✅ Да, с формами` and `❌ Нет`; it no longer
   offers a duplicate infinitive-only path. The forms choice applies the

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic plain-text rendering for Anki statistics."""
+"""Deterministic Markdown rendering for Anki statistics."""
 
 from __future__ import annotations
 
@@ -8,9 +8,24 @@ from typing import Any
 
 
 DECK_LABELS = {
-    "Español": ("🇪🇸", "Spanish"),
-    "English": ("🇬🇧", "English"),
+    "Español": ("🇪🇸", "Испанский"),
+    "English": ("🇬🇧", "Английский"),
 }
+WEEKDAY_LABELS = ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")
+MONTH_LABELS = (
+    "янв",
+    "фев",
+    "мар",
+    "апр",
+    "мая",
+    "июн",
+    "июл",
+    "авг",
+    "сен",
+    "окт",
+    "ноя",
+    "дек",
+)
 TELEGRAM_LIMIT = 4096
 
 
@@ -20,53 +35,78 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
     yesterday = history["yesterday"]
     current = history["current"]
     previous = history["previous"]
+    yesterday_answers = _count(
+        yesterday["answers"], "ответ", "ответа", "ответов"
+    )
+    yesterday_cards = _count(
+        yesterday["unique_cards"],
+        "карточка",
+        "карточки",
+        "карточек",
+    )
+    current_answers = _count(
+        current["answers"], "ответ", "ответа", "ответов"
+    )
+    learning_items = _count(
+        state["learning_items"],
+        "учебный элемент",
+        "учебных элемента",
+        "учебных элементов",
+    )
+    mature_items = _count(
+        state["mature_items"],
+        "элемент закреплён",
+        "элемента закреплено",
+        "элементов закреплено",
+    )
+    cards = _count(
+        state["cards"], "карточка", "карточки", "карточек"
+    )
 
     lines = [
-        f"{flag} {label} · {deck}",
-        f"Report for {_display_date(report_date)} · {history['timezone']}",
+        f"**{flag} {label} · {deck}**",
+        f"Отчёт за {_display_date(report_date)} · {history['timezone']}",
         "",
-        "Yesterday",
+        "**Вчера**",
         (
-            f"{yesterday['answers']} answers · {yesterday['unique_cards']} cards · "
+            f"{yesterday_answers} · {yesterday_cards} · "
             f"{format_duration(yesterday['duration_ms'])}"
         ),
         (
-            f"Again {yesterday['again']} · answer pass "
+            f"Снова {yesterday['again']} · успешных ответов "
             f"{format_percent(yesterday['answer_pass_rate'])}"
         ),
         (
-            f"True retention {format_percent(yesterday['true_retention'])} "
+            f"**Запоминание {format_percent(yesterday['true_retention'])}** "
             f"({yesterday['true_passes']}/{yesterday['true_total']})"
         ),
         "",
-        "Last 7 completed days",
+        "**Последние 7 дней**",
     ]
     for day in history["days"]:
         parsed = date.fromisoformat(day["date"])
         lines.append(
-            f"{parsed.strftime('%a')} {day['answers']} · "
+            f"{WEEKDAY_LABELS[parsed.weekday()]} {day['answers']} · "
             f"{format_percent(day['true_retention'])}"
         )
     lines.extend(
         [
             (
-                f"{current['answers']} answers · {current['days_studied']}/7 days · "
-                f"{current['average_answers']}/day · {format_duration(current['duration_ms'])}"
+                f"**{current_answers}** · {current['days_studied']}/7 дней · "
+                f"{current['average_answers']}/день · "
+                f"{format_duration(current['duration_ms'])}"
             ),
             _comparison_line(current, previous),
             "",
-            "Deck now",
+            "**Колода сейчас**",
             (
-                f"{state['learning_items']} learning items · "
-                f"{state['introduced_items']} introduced"
+                f"{learning_items} · начато {state['introduced_items']}"
             ),
+            f"{mature_items} · {cards}",
             (
-                f"{state['mature_items']} mature learning items · "
-                f"{state['cards']} cards"
-            ),
-            (
-                f"Due now: {state['due_new']} new · {state['due_learning']} learning · "
-                f"{state['due_review']} review"
+                f"**Доступно сейчас:** новых {state['due_new']} · "
+                f"изучаются {state['due_learning']} · "
+                f"к повторению {state['due_review']}"
             ),
         ]
     )
@@ -82,25 +122,44 @@ def render_compact_report(
     flag, label = DECK_LABELS[deck]
     yesterday = history["yesterday"]
     current = history["current"]
+    yesterday_answers = _count(
+        yesterday["answers"], "ответ", "ответа", "ответов"
+    )
+    current_answers = _count(
+        current["answers"], "ответ", "ответа", "ответов"
+    )
+    learning_items = _count(
+        state["learning_items"],
+        "учебный элемент",
+        "учебных элемента",
+        "учебных элементов",
+    )
+    mature_items = _count(
+        state["mature_items"],
+        "элемент закреплён",
+        "элемента закреплено",
+        "элементов закреплено",
+    )
     return "\n".join(
         [
-            f"{flag} {label} · {deck} · {history['report_date']}",
+            f"**{flag} {label} · {deck}** · {history['report_date']}",
             (
-                f"Yesterday: {yesterday['answers']} answers · "
-                f"{format_percent(yesterday['true_retention'])} retention"
+                f"**Вчера:** {yesterday_answers} · "
+                f"запоминание {format_percent(yesterday['true_retention'])}"
             ),
             (
-                f"7 days: {current['answers']} answers · "
-                f"{format_percent(current['true_retention'])} retention · "
-                f"{current['days_studied']}/7 days"
+                f"**7 дней:** **{current_answers}** · запоминание "
+                f"{format_percent(current['true_retention'])} · "
+                f"{current['days_studied']}/7 дней"
             ),
             (
-                f"Deck: {state['learning_items']} items · {state['mature_items']} mature · "
-                f"{state['cards']} cards"
+                f"**Колода:** {learning_items} · {mature_items} · "
+                f"карточек {state['cards']}"
             ),
             (
-                f"Due: {state['due_new']} new · {state['due_learning']} learning · "
-                f"{state['due_review']} review"
+                f"**Доступно:** новых {state['due_new']} · "
+                f"изучаются {state['due_learning']} · "
+                f"к повторению {state['due_review']}"
             ),
         ]
     )
@@ -111,10 +170,10 @@ def format_duration(milliseconds: int) -> str:
     hours, remainder = divmod(seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     if hours:
-        return f"{hours}h {minutes}m"
+        return f"{hours} ч {minutes} мин"
     if minutes:
-        return f"{minutes}m {seconds}s"
-    return f"{seconds}s"
+        return f"{minutes} мин {seconds} с"
+    return f"{seconds} с"
 
 
 def format_percent(value: float | None) -> str:
@@ -122,23 +181,42 @@ def format_percent(value: float | None) -> str:
 
 
 def _display_date(value: date) -> str:
-    return f"{value.strftime('%a, %b')} {value.day}"
+    weekday = WEEKDAY_LABELS[value.weekday()].lower()
+    return f"{weekday}, {value.day} {MONTH_LABELS[value.month - 1]}"
+
+
+def _count(value: int, one: str, few: str, many: str) -> str:
+    remainder_100 = abs(value) % 100
+    remainder_10 = remainder_100 % 10
+    if 11 <= remainder_100 <= 14:
+        word = many
+    elif remainder_10 == 1:
+        word = one
+    elif 2 <= remainder_10 <= 4:
+        word = few
+    else:
+        word = many
+    return f"{value} {word}"
 
 
 def _comparison_line(current: dict[str, Any], previous: dict[str, Any]) -> str:
     previous_answers = previous["answers"]
     if previous_answers == 0 and current["answers"] > 0:
-        answer_change = "answers new activity"
+        answer_change = "ответы: новая активность"
     elif previous_answers == 0:
-        answer_change = "answers 0%"
+        answer_change = "ответы 0%"
     else:
         change = round((current["answers"] - previous_answers) * 100 / previous_answers)
-        answer_change = f"answers {change:+d}%"
+        answer_change = f"ответы {change:+d}%"
 
-    retention = f"True retention {format_percent(current['true_retention'])}"
+    retention = (
+        f"**Запоминание {format_percent(current['true_retention'])}**"
+    )
     if current["true_retention"] is not None and previous["true_retention"] is not None:
-        points = round((current["true_retention"] - previous["true_retention"]) * 100)
-        retention += f" · {answer_change} · retention {points:+d} pp"
+        previous_retention = format_percent(previous["true_retention"])
+        retention += (
+            f" · {answer_change} · неделей ранее {previous_retention}"
+        )
     else:
         retention += f" · {answer_change}"
     return retention
