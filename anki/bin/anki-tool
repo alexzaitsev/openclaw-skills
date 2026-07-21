@@ -180,7 +180,7 @@ def normalize_tags(tags: list[str]) -> list[str]:
     normalized: list[str] = []
     for raw in tags:
         for tag in raw.split():
-            clean = tag.strip()
+            clean = unicodedata.normalize("NFC", tag.strip())
             if clean and clean not in normalized:
                 normalized.append(clean)
     return normalized
