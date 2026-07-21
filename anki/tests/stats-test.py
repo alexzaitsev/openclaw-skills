@@ -136,11 +136,27 @@ class StatisticsTest(unittest.TestCase):
         self.assertIn("**🇪🇸 Испанский · Español**", report)
         self.assertNotIn("Отчёт за", report)
         self.assertNotIn("America/Edmonton", report)
+        self.assertLess(
+            report.index("**Колода сейчас · пн 20 июля**"),
+            report.index("**Вчера · вс 19 июля**"),
+        )
+        self.assertLess(
+            report.index("**Вчера · вс 19 июля**"),
+            report.index("**Последние 7 дней**"),
+        )
+        self.assertIn(
+            "**Вчера · вс 19 июля**\n"
+            "||1 ответ · 1 карточка · 1 с\n"
+            "Снова 0 · успешных ответов 100%\n"
+            "**Запоминание 100%** (1/1)||",
+            report,
+        )
         self.assertIn("**Вчера · вс 19 июля**", report)
         self.assertIn("**Запоминание 100%** (1/1)", report)
-        self.assertIn("**Последние 7 дней**", report)
+        self.assertIn("**Последние 7 дней**\n||Пн 0 · —", report)
         self.assertIn("Вс 1 · 100%", report)
         self.assertIn("**1 ответ** · 1/7 дней", report)
+        self.assertIn("||", report)
         self.assertIn("**Колода сейчас · пн 20 июля**", report)
         self.assertIn(
             "**Доступно сейчас:** новых 1 · "
@@ -155,8 +171,12 @@ class StatisticsTest(unittest.TestCase):
 
         compact = render_compact_report("Español", history, state)
         self.assertIn("**🇪🇸 Испанский · Español**", compact)
-        self.assertIn("**Вчера · вс 19 июля:** 1 ответ", compact)
-        self.assertIn("**7 дней:** **1 ответ**", compact)
+        self.assertLess(
+            compact.index("**Колода сейчас · пн 20 июля:**"),
+            compact.index("**Вчера · вс 19 июля**"),
+        )
+        self.assertIn("**Вчера · вс 19 июля**\n||1 ответ", compact)
+        self.assertIn("**Последние 7 дней**\n||**1 ответ**", compact)
         self.assertIn(
             "**Колода сейчас · пн 20 июля:** "
             "1 учебный элемент",

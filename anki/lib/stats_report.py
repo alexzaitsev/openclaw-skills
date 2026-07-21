@@ -64,10 +64,7 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
         state["cards"], "карточка", "карточки", "карточек"
     )
 
-    lines = [
-        f"**{flag} {label} · {deck}**",
-        "",
-        f"**Вчера · {_display_date(report_date)}**",
+    yesterday_lines = [
         (
             f"{yesterday_answers} · {yesterday_cards} · "
             f"{format_duration(yesterday['duration_ms'])}"
@@ -80,16 +77,15 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
             f"**Запоминание {format_percent(yesterday['true_retention'])}** "
             f"({yesterday['true_passes']}/{yesterday['true_total']})"
         ),
-        "",
-        "**Последние 7 дней**",
     ]
+    seven_day_lines = []
     for day in history["days"]:
         parsed = date.fromisoformat(day["date"])
-        lines.append(
+        seven_day_lines.append(
             f"{WEEKDAY_LABELS[parsed.weekday()]} {day['answers']} · "
             f"{format_percent(day['true_retention'])}"
         )
-    lines.extend(
+    seven_day_lines.extend(
         [
             (
                 f"**{current_answers}** · {current['days_studied']}/7 дней · "
@@ -97,19 +93,26 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
                 f"{format_duration(current['duration_ms'])}"
             ),
             _comparison_line(current, previous),
-            "",
-            f"**Колода сейчас · {_display_date(run_date)}**",
-            (
-                f"{learning_items} · начато {state['introduced_items']}"
-            ),
-            f"{mature_items} · {cards}",
-            (
-                f"**Доступно сейчас:** новых {state['due_new']} · "
-                f"изучаются {state['due_learning']} · "
-                f"к повторению {state['due_review']}"
-            ),
         ]
     )
+    lines = [
+        f"**{flag} {label} · {deck}**",
+        "",
+        f"**Колода сейчас · {_display_date(run_date)}**",
+        f"{learning_items} · начато {state['introduced_items']}",
+        f"{mature_items} · {cards}",
+        (
+            f"**Доступно сейчас:** новых {state['due_new']} · "
+            f"изучаются {state['due_learning']} · "
+            f"к повторению {state['due_review']}"
+        ),
+        "",
+        f"**Вчера · {_display_date(report_date)}**",
+        _spoiler(yesterday_lines),
+        "",
+        "**Последние 7 дней**",
+        _spoiler(seven_day_lines),
+    ]
     report = "\n".join(lines)
     if len(report) <= TELEGRAM_LIMIT:
         return report
@@ -145,25 +148,28 @@ def render_compact_report(
     return "\n".join(
         [
             f"**{flag} {label} · {deck}**",
-            (
-                f"**Вчера · {_display_date(report_date)}:** "
-                f"{yesterday_answers} · "
-                f"запоминание {format_percent(yesterday['true_retention'])}"
-            ),
-            (
-                f"**7 дней:** **{current_answers}** · запоминание "
-                f"{format_percent(current['true_retention'])} · "
-                f"{current['days_studied']}/7 дней"
-            ),
-            (
-                f"**Колода сейчас · {_display_date(run_date)}:** "
-                f"{learning_items} · {mature_items} · "
-                f"карточек {state['cards']}"
-            ),
+            f"**Колода сейчас · {_display_date(run_date)}:** "
+            f"{learning_items} · {mature_items} · "
+            f"карточек {state['cards']}",
             (
                 f"**Доступно:** новых {state['due_new']} · "
                 f"изучаются {state['due_learning']} · "
                 f"к повторению {state['due_review']}"
+            ),
+            f"**Вчера · {_display_date(report_date)}**",
+            _spoiler(
+                [
+                    f"{yesterday_answers} · "
+                    f"запоминание {format_percent(yesterday['true_retention'])}"
+                ]
+            ),
+            "**Последние 7 дней**",
+            _spoiler(
+                [
+                    f"**{current_answers}** · запоминание "
+                    f"{format_percent(current['true_retention'])} · "
+                    f"{current['days_studied']}/7 дней"
+                ]
             ),
         ]
     )
@@ -182,6 +188,11 @@ def format_duration(milliseconds: int) -> str:
 
 def format_percent(value: float | None) -> str:
     return "—" if value is None else f"{round(value * 100)}%"
+
+
+def _spoiler(lines: list[str]) -> str:
+    """Wrap one section's content in Telegram's Markdown spoiler syntax."""
+    return "||" + "\n".join(lines) + "||"
 
 
 def _display_date(value: date) -> str:
