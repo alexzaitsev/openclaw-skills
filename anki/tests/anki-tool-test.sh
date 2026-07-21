@@ -503,10 +503,10 @@ grep -F "[1] front: decir (hablar)" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[1] proposed_context: англ. hablar" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[2] front: yo digo" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[2] proposed_back: я говорю (speak)" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
-grep -F "[1] current_tags: source:old source:telegram grammar::verbs" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
+grep -F "[1] current_tags: deck:números grammar::verbs source:old source:telegram" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[1] add_tags: review-later" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[1] remove_tags: source:old" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
-grep -F "[1] proposed_tags: source:telegram grammar::verbs review-later" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
+grep -F "[1] proposed_tags: deck:números grammar::verbs source:telegram review-later" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[2] proposed_tags: review-later source:telegram grammar::verbs" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "result: dry run only" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-batch-dry.txt")"
@@ -551,7 +551,7 @@ grep -F "EXECUTE edit-batch" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "updated_note=7001 front=decir (hablar)" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "updated_note=7003 front=yo digo" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "result: updated=2" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
-grep -F "tags=changed-after-plan grammar::verbs review-later source:telegram" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
+grep -F "tags=changed-after-plan deck:números grammar::verbs review-later source:telegram" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "tags=grammar::verbs review-later source:telegram" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "sync: requested" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 
