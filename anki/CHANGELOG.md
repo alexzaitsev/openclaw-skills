@@ -14,6 +14,8 @@
 
 ## Unreleased
 
+- Context markup now uses only the card model's shared `.context` CSS; inline
+  context presentation is not supported.
 - Added Spanish role `números`, which creates `deck:números` for number and
   number-focused practice.
 - Fixed `edit-note` and `edit-batch` tag verification to compare a

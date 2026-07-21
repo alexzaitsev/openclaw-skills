@@ -23,9 +23,9 @@ from anki_connect import AnkiConnectError, invoke  # noqa: E402
 
 MODEL = "Basic (type in the answer + reverse)"
 DEFAULT_SOURCE = ROOT / "import-cards" / "cards.json"
-CONTEXT_PREFIX = (
-    '<br><div class="context" '
-    'style="font-size: 0.9em; font-style: italic;">Контекст: '
+CONTEXT_SUFFIX = re.compile(
+    r'<br><div class="context">Контекст:\s*(.*?)</div>\s*$',
+    re.DOTALL,
 )
 
 COMMAND_CAPABILITIES = [
@@ -86,8 +86,7 @@ def html_back(back: str, context: str | None = None) -> str:
     parts = [escape(back)]
     if context:
         parts.append(
-            '<br><div class="context" '
-            'style="font-size: 0.9em; font-style: italic;">'
+            '<br><div class="context">'
             f'Контекст: {escape(context)}</div>'
         )
     return "".join(parts)
@@ -104,12 +103,10 @@ def contains_media(value: object) -> bool:
 def split_back(value: object) -> tuple[str, str | None]:
     """Extract the text and optional context from this skill's Back format."""
     raw = str(value)
-    if raw.startswith(CONTEXT_PREFIX) or CONTEXT_PREFIX not in raw:
+    match = CONTEXT_SUFFIX.search(raw)
+    if not match:
         return plain_text(raw), None
-    back_html, context_html = raw.rsplit(CONTEXT_PREFIX, 1)
-    if not context_html.endswith("</div>"):
-        return plain_text(raw), None
-    return plain_text(back_html), plain_text(context_html.removesuffix("</div>"))
+    return plain_text(raw[:match.start()]), plain_text(match.group(1))
 
 
 def invoke_decks() -> list[str]:

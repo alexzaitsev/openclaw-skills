@@ -226,6 +226,19 @@ fi
 
 export ANKI_CONNECT_URL="http://127.0.0.1:$PORT"
 
+python3 - "$ROOT/bin/anki-tool" <<'PY'
+import runpy
+import sys
+
+tool = runpy.run_path(sys.argv[1])
+assert tool["html_back"]("ответ", "пояснение") == (
+    'ответ<br><div class="context">Контекст: пояснение</div>'
+)
+assert tool["split_back"](
+    'ответ<br><div class="context">Контекст: пояснение</div>'
+) == ("ответ", "пояснение")
+PY
+
 "$ROOT/bin/anki-tool" ping > "$TMP_DIR/ping.txt"
 grep -F "AnkiConnect API version: 6" "$TMP_DIR/ping.txt" >/dev/null
 
