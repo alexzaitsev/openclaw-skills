@@ -23,6 +23,7 @@ source or workflow tags are allowed.
 | --- | --- |
 | `deck:adjetivos` | Standalone adjectives. |
 | `deck:general` | Phrases, fixed expressions, and uncategorized vocabulary. |
+| `deck:números` | Numbers and number-focused practice. |
 | `deck:reglas` | Grammar rules and grammar-focused examples. |
 | `deck:verbos` | Verbs, forms, and explicit verb or conjugation practice. |
 

@@ -669,6 +669,7 @@ current plan's dry run has completed and been shown to the operator.
   requested as verb or conjugation practice with `deck:verbos`.
 - For Spanish, tag standalone grammar rules and grammar-focused examples with
   `deck:reglas`.
+- For Spanish, tag numbers and number-focused practice with `deck:números`.
 - For Spanish, tag fixed expressions, conversational phrases, nouns, adverbs,
   and other material that clearly does not fit a specialized role with
   `deck:general`.

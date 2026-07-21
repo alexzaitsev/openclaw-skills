@@ -149,6 +149,10 @@ class Handler(BaseHTTPRequestHandler):
                     for tag in requested_tags:
                         if tag not in note["tags"]:
                             note["tags"].append(tag)
+                    # AnkiConnect may normalize tag order when it returns a
+                    # note. This makes the mock cover order-independent
+                    # post-write verification.
+                    note["tags"].sort(key=str.casefold)
                 else:
                     note["tags"] = [tag for tag in note["tags"] if tag not in requested_tags]
             response["result"] = None
@@ -464,7 +468,7 @@ grep -F "result: updated note 7001" "$TMP_DIR/edit-execute.txt" >/dev/null
 grep -F "verified_front: decir (hablar)" "$TMP_DIR/edit-execute.txt" >/dev/null
 grep -F "verified_back: говорить; сказать" "$TMP_DIR/edit-execute.txt" >/dev/null
 grep -F "verified_context: англ. say" "$TMP_DIR/edit-execute.txt" >/dev/null
-grep -F "verified_tags: source:old source:telegram grammar::verbs" "$TMP_DIR/edit-execute.txt" >/dev/null
+grep -F "verified_tags: grammar::verbs source:old source:telegram" "$TMP_DIR/edit-execute.txt" >/dev/null
 grep -F "sync: requested" "$TMP_DIR/edit-execute.txt" >/dev/null
 
 "$ROOT/bin/anki-tool" edit-batch \
@@ -529,8 +533,8 @@ grep -F "EXECUTE edit-batch" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "updated_note=7001 front=decir (hablar)" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "updated_note=7003 front=yo digo" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "result: updated=2" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
-grep -F "tags=source:telegram grammar::verbs changed-after-plan review-later" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
-grep -F "tags=review-later source:telegram grammar::verbs" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
+grep -F "tags=changed-after-plan grammar::verbs review-later source:telegram" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
+grep -F "tags=grammar::verbs review-later source:telegram" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "sync: requested" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 
 if "$ROOT/bin/anki-tool" edit-note \

@@ -302,6 +302,16 @@ def tag_key(tag: str) -> str:
     return tag.casefold()
 
 
+def same_tag_set(actual: list[str], expected: list[str]) -> bool:
+    """Compare Anki tags by identity, not response order.
+
+    AnkiConnect can normalize the order of note tags after an add/remove
+    operation.  The order is presentation-only; a write is verified when the
+    case-insensitive tag identities are exactly the reviewed set.
+    """
+    return sorted(map(tag_key, actual)) == sorted(map(tag_key, expected))
+
+
 def plan_tag_changes(
     current_tags: list[str], requested_add: list[str], requested_remove: list[str]
 ) -> tuple[list[str], list[str], list[str]]:
@@ -731,7 +741,7 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
         verified_front != proposed_front
         or verified_back != proposed_back
         or verified_context != proposed_context
-        or [tag_key(tag) for tag in verified_tags] != [tag_key(tag) for tag in proposed_tags]
+        or not same_tag_set(verified_tags, proposed_tags)
     ):
         raise UserFacingError(f"Updated note {note_id}, but field or tag verification failed.")
     print(f"result: updated note {note_id}")
@@ -925,9 +935,7 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
                 f"Updated note {note_id}, but field verification failed."
             )
         verified_tags = note_tags(verified, note_id)
-        if [tag_key(tag) for tag in verified_tags] != [
-            tag_key(tag) for tag in plan["proposed_tags"]
-        ]:
+        if not same_tag_set(verified_tags, plan["proposed_tags"]):
             raise UserFacingError(
                 f"Updated note {note_id}, but tag verification failed."
             )
