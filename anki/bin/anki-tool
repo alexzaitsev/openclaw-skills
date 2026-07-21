@@ -192,7 +192,12 @@ def original_deck_tag(deck: str) -> str:
 
 
 def deck_role_tag(deck: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9_-]+", "-", deck.strip().lower()).strip("-")
+    slug = re.sub(
+        r"[^\w-]+",
+        "-",
+        unicodedata.normalize("NFC", deck.strip().casefold()),
+        flags=re.UNICODE,
+    ).strip("-")
     return f"deck:{slug or 'unknown'}"
 
 

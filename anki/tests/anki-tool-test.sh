@@ -313,6 +313,15 @@ grep -F "role: general" "$TMP_DIR/add-dry.txt" >/dev/null
 grep -F "tags: source:telegram deck:general" "$TMP_DIR/add-dry.txt" >/dev/null
 grep -F "field Example: El edificio es alto." "$TMP_DIR/add-dry.txt" >/dev/null
 
+"$ROOT/bin/anki-tool" add-basic \
+  --deck Español \
+  --role números \
+  --front "cero" \
+  --back "ноль" \
+  > "$TMP_DIR/unicode-role-dry.txt"
+grep -F "role: números" "$TMP_DIR/unicode-role-dry.txt" >/dev/null
+grep -F "tags: deck:números" "$TMP_DIR/unicode-role-dry.txt" >/dev/null
+
 if "$ROOT/bin/anki-tool" add-basic \
   --deck Español \
   --role general \
