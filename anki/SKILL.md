@@ -27,6 +27,17 @@ If the proposed reply contains `Подтверждаешь?`, do **not** send it
 assistant text. Send it through the `message` tool with the buttons. A plain
 text plan asking for confirmation is a contract failure, not a fallback UI.
 
+## Exec Command Format
+
+Every `exec` tool call for `anki-tool`, `anki-stats`, or
+`stage-inbound-image` must contain exactly **one physical shell-command line**.
+Do not use a trailing `\`, a newline, a shell wrapper, or any other multiline
+formatting, even when an example in this document is wrapped for readability.
+Pass every argument in that one line. OpenClaw treats line continuations as an
+unanalyzable shell construct, so they bypass this agent's exact-executable
+allowlist and incorrectly request a system approval. This rule applies to all
+dry runs as well as execute-mode commands.
+
 ## Reviewed Command Surface
 
 The exact `anki-tool` commands documented in this skill are the normal Anki
