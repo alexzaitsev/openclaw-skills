@@ -1,4 +1,4 @@
-# Decks and study-role tags
+# Anki language decks and study-role tags
 
 Physical Anki decks are organized by language. Study categories live in note
 tags inside each language deck; category names are not physical decks.

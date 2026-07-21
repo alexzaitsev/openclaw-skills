@@ -8,7 +8,8 @@ bins: ["python3"]
 
 Use this skill to manage the operator's language-organized Anki collection
 through local AnkiConnect on the OpenClaw VM. Physical decks represent
-languages; each language has its own study-role tags in `DECKS.md`.
+languages; each language has its own study-role tags in `ANKI_ROLES.md`.
+Choose a note type from `ANKI_CARD_TYPES.md` before every addition.
 
 For every request involving Anki cards, decks, checks, additions, statistics,
 or notification settings, read this file before taking any action. Use only
@@ -19,9 +20,9 @@ snippet, `curl`, or a generic shell command, even for a read-only lookup.
 
 After **every successful dry run for a data-changing operation**, the next
 outbound Telegram response must be exactly one `message` tool call with the
-required `✅ Да` and `❌ Нет` inline buttons described below, followed by
-`NO_REPLY`. This includes `edit-note` and `edit-batch`, even when the operator
-only asked to add examples or context to an existing card.
+required inline buttons from `TG_BUTTONS.md`, followed by `NO_REPLY`. This
+includes `edit-note` and `edit-batch`, even when the operator only asked to
+add examples or context to an existing card.
 
 If the proposed reply contains `Подтверждаешь?`, do **not** send it as normal
 assistant text. Send it through the `message` tool with the buttons. A plain
@@ -93,13 +94,14 @@ required values. Spanish content goes to physical deck `Español`; `--role`
 selects one Spanish role and the helper creates its `deck:<role>` tag. Never
 use a role name as the physical deck and never derive `deck:Español` from the
 physical deck. The active `English` deck currently has exactly one approved
-role, `general`; use it for English additions until `DECKS.md` defines a more
+role, `general`; use it for English additions until `ANKI_ROLES.md` defines a more
 specific English role table.
 
-Before every addition, read the deployed `DECKS.md` to resolve both values and
-to confirm that the requested language's role table exists. This required
-reference read is allowed; the source-inspection prohibition above applies to
-helper implementation files, not to `DECKS.md`.
+Before every addition, read the deployed `ANKI_ROLES.md` to resolve the
+language deck and study role, then read `ANKI_CARD_TYPES.md` to select the
+card model. These required reference reads are allowed; the source-inspection
+prohibition above applies to helper implementation files, not to these
+reference files.
 
 ## Supported Operations
 
@@ -150,11 +152,12 @@ delete the deck. The installed AnkiConnect requires its `cardsToo=true` API
 mode even for an empty deck; the helper uses it only after this verified count,
 so an empty-deck deletion still has zero cards to remove.
 
-Read the live card-field schema before every `add-basic` or `add-batch` dry
-run. Do not assume that the model will always contain only `Front` and `Back`:
+Read the live card-field schema for the chosen model before every `add-basic`
+or `add-batch` dry run. Do not assume that the model will always contain only
+`Front` and `Back`:
 
 ```bash
-/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool fields
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool fields --model "<chosen model>"
 ```
 
 Use the reported field names exactly. `Front`, `Back`, and optional `context`
@@ -205,6 +208,7 @@ Add a basic Spanish note:
 /home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool add-basic \
   --deck Español \
   --role general \
+  --model "Basic (type in the answer + reverse)" \
   --front "la palabra" \
   --back "word" \
   --context "only if needed for disambiguation" \
@@ -223,7 +227,7 @@ printed plan.
 Prepare multiple notes as one reviewed operation:
 
 ```bash
-/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool add-batch --note Español general "¿Puedes cambiar tus planes?" "Ты можешь изменить свои планы?" "optional disambiguation" --note Español verbos "cambiar" "менять; изменять" --tag source:telegram
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool add-batch --model "Basic (type in the answer + reverse)" --note Español general "¿Puedes cambiar tus planes?" "Ты можешь изменить свои планы?" "optional disambiguation" --note Español verbos "cambiar" "менять; изменять" --tag source:telegram
 ```
 
 Use `add-batch` whenever one operator request asks for multiple notes. It is a
@@ -403,41 +407,9 @@ Pause one deck with a dry run:
 ```
 
 Every `configure` or `disable` dry run prints the old settings, proposed
-settings, exact cron expression, and a stale-safe `plan_id`. A successful dry
-run must be sent through one Telegram `message` tool call with a concise diff,
-followed by `Подтверждаешь?`, and these buttons:
-
-```json
-{
-  "action": "send",
-  "channel": "telegram",
-  "accountId": "anki",
-  "target": "142309269",
-  "message": "<current and proposed statistics settings>\n\nПодтверждаешь?",
-  "buttons": [[
-    {
-      "text": "✅ Да",
-      "callback_data": "anki:stats:yes:<plan-id>",
-      "style": "success"
-    },
-    {
-      "text": "❌ Нет",
-      "callback_data": "anki:stats:no:<plan-id>",
-      "style": "danger"
-    }
-  ]]
-}
-```
-
-After the message tool call, return `NO_REPLY`. Do not reuse
-`anki:confirm:yes` or any `anki:verb:*` callback for statistics settings.
-
-Treat `callback_data: anki:stats:yes:<plan-id>` as confirmation only for the
-unchanged immediately preceding statistics plan with that exact ID. Execute
-the same command arguments with `--execute --plan-id <plan-id>`. Treat the
-matching `anki:stats:no:<plan-id>` as cancellation. A textual confirmation is
-also valid only for the unchanged immediately preceding plan. Any requested
-edit invalidates the old plan and requires a fresh dry run and buttons.
+settings, exact cron expression, and a stale-safe `plan_id`. Send its concise
+diff through the statistics button flow in `TG_BUTTONS.md`; the callback may
+execute only that unchanged plan ID.
 
 Statistics configuration changes only the declared job's enabled state,
 time, weekdays, and timezone. The helper verifies the exact worker argv,
@@ -453,77 +425,10 @@ approvals, or expose a general OpenClaw cron administration command.
 
 ## Telegram Confirmation Buttons
 
-For **every data-changing Anki operation** (`create-deck`, `delete-deck`,
-`add-basic`, `add-batch`, `edit-note`, `edit-batch`, `tag-decks`, `move-note`,
-`import-json`, or `merge-decks`) in the dedicated
-Anki Telegram DM, send its successful dry-run plan as one `message` tool call
-with these inline buttons. This is required for edits as well as additions.
-End that same message with `Подтверждаешь?` After the tool call, do not send a
-second plain-text response or repeat the plan; the inline buttons are the
-primary UI:
-
-```json
-{
-  "action": "send",
-  "channel": "telegram",
-  "accountId": "anki",
-  "target": "142309269",
-  "message": "<the complete current dry-run plan>\n\nПодтверждаешь?",
-  "buttons": [[
-    {
-      "text": "✅ Да",
-      "callback_data": "anki:confirm:yes",
-      "style": "success"
-    },
-    {
-      "text": "❌ Нет",
-      "callback_data": "anki:confirm:no",
-      "style": "danger"
-    }
-  ]]
-}
-```
-
-Do **not** paste the helper's raw, line-by-line dry-run output into Telegram.
-Turn it into a short, readable plan while preserving the information needed to
-approve the actual change:
-
-- For an addition: physical language deck, study role, front, back, specified
-  context, populated extra fields, tags, and duplicate-check result.
-- For an edit: note ID, only fields that change as `old → new`, tag additions
-  and removals, and explicitly say when no tags change. Omit unchanged fields.
-- For a move, import, or merge: source and destination plus the affected note
-  or item count and any tag changes.
-- For deck creation: the exact new deck name.
-- For deck deletion: the exact deck name, card and note counts, whether it is
-  empty, and a clear warning that a non-empty deletion removes its cards.
-
-Use `&lt;none&gt;` only when it makes a proposed change clear, such as a newly added
-context. Never hide a changed field or tag merely to shorten the message. The
-terminal dry-run remains the authoritative execution check; the Telegram plan
-is its concise approval view.
-
-The Telegram approval view must identify each existing note by its **current
-front text** first, for example `Карточка: yo miro` or `Карточка: mirar`.
-`note ID` may appear as a secondary technical detail but must never be the only
-way a person distinguishes a card. For batch edits, number the cards and show
-the front text beside every set of changes.
-
-OpenClaw delivers a normal Telegram inline-button callback to the agent as the
-synthetic user text `callback_data: <callback_data>`. Therefore
-`callback_data: anki:confirm:yes` and `callback_data: anki:confirm:no` have
-exactly the same meaning as a later textual confirmation or rejection. Treat
-`yes` as approval only for the unchanged, immediately preceding Anki dry-run
-plan; otherwise ask for a new dry run. Treat `no` as cancellation and make no
-write. Text replies such as `да`, `нет`, questions, and plan edits remain fully
-supported. Any edit still invalidates the old buttons and requires a new dry
-run with new buttons.
-
-Never send an unbuttoned message that asks the operator whether to prepare or
-apply an Anki data change. Preparing a dry run needs no confirmation: run it.
-Only the exact completed dry run asks `Подтверждаешь?`, and it must use the
-buttons above. If a prior message offered to prepare a dry run and the operator
-answers `да`, run that dry run immediately; do not treat it as execute approval.
+Use the complete UI, callback, and concise-plan contract in `TG_BUTTONS.md`.
+It is mandatory for every data-changing Anki operation. Never send an
+unbuttoned confirmation request: preparing a dry run needs no confirmation,
+and only the completed dry run is shown with the specified buttons.
 
 ### Irregular Spanish verb choice
 
@@ -557,78 +462,10 @@ front in its respective plan. Do not treat another sentence that merely
 contains a conjugated word as satisfying that card. Omit already-present exact
 cards from the addition plan and say so in the Telegram summary.
 
-When the infinitive is absent, after both alternatives have completed
-successfully, send exactly one `message` tool call with this concise comparison
-and these three inline buttons, followed by `NO_REPLY`:
-
-```json
-{
-  "action": "send",
-  "channel": "telegram",
-  "accountId": "anki",
-  "target": "142309269",
-  "message": "Глагол <infinitive> неправильный в presente.\n\nС формами: <complete reviewed plan>.\nТолько инфинитив: <reviewed plan>.\n\nЧто добавить?",
-  "buttons": [[
-    {
-      "text": "✅ Да, с формами",
-      "callback_data": "anki:verb:forms",
-      "style": "success"
-    },
-    {
-      "text": "⚠️ Да, инфинитив",
-      "callback_data": "anki:verb:infinitive",
-      "style": "primary"
-    },
-    {
-      "text": "❌ Нет",
-      "callback_data": "anki:verb:no",
-      "style": "danger"
-    }
-  ]]
-}
-```
-
-When the infinitive already exists, after the full plan has completed
-successfully, send exactly one `message` tool call with that plan and **only**
-these two inline buttons, followed by `NO_REPLY`:
-
-```json
-{
-  "action": "send",
-  "channel": "telegram",
-  "accountId": "anki",
-  "target": "142309269",
-  "message": "Глагол <infinitive> неправильный в presente. Инфинитив уже есть; дубликат не будет создан.\\n\\nС формами: <complete reviewed edit-and-forms plan>.\\n\\nЧто добавить?",
-  "buttons": [[
-    {
-      "text": "✅ Да, с формами",
-      "callback_data": "anki:verb:forms",
-      "style": "success"
-    },
-    {
-      "text": "❌ Нет",
-      "callback_data": "anki:verb:no",
-      "style": "danger"
-    }
-  ]]
-}
-```
-
-These buttons are the confirmation for the already displayed dry-run plans:
-`anki:verb:forms` authorizes only every unchanged operation in the full plan;
-`anki:verb:infinitive` authorizes only every unchanged operation in the
-infinitive-only plan; and `anki:verb:no` cancels all of them. Do not run another
-dry run or ask another confirmation after a button unless the collection state,
-content, or requested scope changed. Do not execute an operation that was not
-shown in the chosen alternative.
-
-When an incoming Telegram callback is `callback_data: anki:verb:forms`, execute
-the unchanged full plan immediately with `--execute` and report the verified
-result. When it is `callback_data: anki:verb:infinitive`, execute the unchanged
-infinitive-only plan immediately; this callback is valid only when that
-alternative was shown. When it is `callback_data: anki:verb:no`, make no write
-and confirm cancellation. Do not answer a valid callback with an explanation,
-another question, or another dry run.
+Use the irregular-verb message, button, and callback contract in
+`TG_BUTTONS.md`. A valid forms callback executes only its already displayed,
+unchanged complete plan; do not ask another question or run another dry run
+unless collection state, content, or requested scope changed.
 
 ## Confirmation Protocol For All Data Changes
 
@@ -669,7 +506,7 @@ current plan's dry run has completed and been shown to the operator.
 - Choose the physical deck by language, independently of the study role.
   Spanish cards always go to `Español`. English cards go to `English`; its
   current sole role is `general` and creates the tag `deck:general`.
-- Infer the language-specific study role from `DECKS.md` whenever the content
+- Infer the language-specific study role from `ANKI_ROLES.md` whenever the content
   has a clear fit. Do not ask the operator to choose a role in that case.
 - For Spanish, tag standalone adjectives with `deck:adjetivos`.
 - For Spanish, tag standalone verbs, conjugated forms, and sentences explicitly
@@ -694,17 +531,16 @@ current plan's dry run has completed and been shown to the operator.
   and language context make that inference clear, for example `cambian` to
   `cambiar`.
 - For a regular **Spanish** verb, add the infinitive only unless the operator
-  explicitly asks for examples or conjugations, then use the normal two-button
-  dry-run confirmation flow.
-- For an irregular **Spanish** verb, use the paired dry-run and three-button
-  choice flow in [Irregular Spanish verb choice](#irregular-spanish-verb-choice).
+  explicitly asks for examples or conjugations; use the applicable card-model
+  and confirmation workflow in `ANKI_CARD_TYPES.md` and `TG_BUTTONS.md`.
+- For an irregular **Spanish** verb, use the forms workflow in `TG_BUTTONS.md`.
   Use Latin American Spanish and never add `vosotros` unless requested. Never
-  use that flow for English.
+  use that workflow for English.
 - Ask for the language only when the card language is genuinely ambiguous, and
   ask for the study role only when its learning purpose is genuinely ambiguous.
   Do not use role `general` merely to avoid classifying ambiguous material.
 - Do not infer additional English roles from the Spanish taxonomy. Until
-  `DECKS.md` expands the English table, every English card uses its sole
+  `ANKI_ROLES.md` expands the English table, every English card uses its sole
   approved role, `general`.
 - Use `usted` as `вы (один)` and `ustedes` as `вы (много)` in Russian.
 - Use `context` only for disambiguation and never to reveal the answer.

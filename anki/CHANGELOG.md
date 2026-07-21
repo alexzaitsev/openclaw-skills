@@ -14,6 +14,16 @@
 
 ## Unreleased
 
+- Added the reviewed Spanish TTS card model
+  `Basic (type in the answer + reverse + Spanish TTS)`, which uses on-device
+  `es_MX` speech only when the Spanish side is shown and stores no audio media.
+- `add-basic`, `add-batch`, `fields`, and optional exact-card `check` now
+  support the two reviewed model names. The helper reports the selected model
+  in every add plan and rejects all other model names.
+- Replaced `DECKS.md` with `ANKI_ROLES.md`, added `ANKI_CARD_TYPES.md`, and
+  moved Telegram confirmation-button rules into `TG_BUTTONS.md`. Ordinary
+  Spanish additions now offer `🔊 Да, с аудио` between `✅ Да` and `❌ Нет`;
+  irregular Spanish verb forms retain their dedicated forms choice.
 - Context markup now uses only the card model's shared `.context` CSS; inline
   context presentation is not supported.
 - Added Spanish role `números`, which creates `deck:números` for number and

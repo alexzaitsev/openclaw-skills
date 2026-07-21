@@ -77,12 +77,21 @@ class Handler(BaseHTTPRequestHandler):
         elif action == "deckNames":
             response["result"] = sorted(type(self).deck_names)
         elif action == "modelNames":
-            response["result"] = ["Basic", "Basic (type in the answer + reverse)"]
+            response["result"] = [
+                "Basic",
+                "Basic (type in the answer + reverse)",
+                "Basic (type in the answer + reverse + Spanish TTS)",
+            ]
         elif action == "modelFieldNames":
             response["result"] = ["Front", "Back", "Context", "Example"]
         elif action == "canAddNotes":
             for note in params["notes"]:
                 fields = note["fields"]
+                if note["modelName"] not in {
+                    "Basic (type in the answer + reverse)",
+                    "Basic (type in the answer + reverse + Spanish TTS)",
+                }:
+                    response["error"] = "unsupported note model"
                 if fields["Front"] == "alto" and fields["Context"] == "opposite of bajo" and fields != {
                     "Front": "alto",
                     "Back": "tall",
@@ -282,8 +291,16 @@ grep -F "[1] Front" "$TMP_DIR/fields.txt" >/dev/null
 grep -F "[3] Context" "$TMP_DIR/fields.txt" >/dev/null
 grep -F "[4] Example" "$TMP_DIR/fields.txt" >/dev/null
 
+"$ROOT/bin/anki-tool" fields --model "Basic (type in the answer + reverse + Spanish TTS)" \
+  > "$TMP_DIR/tts-fields.txt"
+grep -F "model: Basic (type in the answer + reverse + Spanish TTS)" \
+  "$TMP_DIR/tts-fields.txt" >/dev/null
+
 "$ROOT/bin/anki-tool" capabilities --json > "$TMP_DIR/capabilities.json"
-grep -F '"version": 3' "$TMP_DIR/capabilities.json" >/dev/null
+grep -F '"version": 4' "$TMP_DIR/capabilities.json" >/dev/null
+grep -F '"default_model": "Basic (type in the answer + reverse)"' \
+  "$TMP_DIR/capabilities.json" >/dev/null
+grep -F '"roles_reference": "ANKI_ROLES.md"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"physical_deck": "language"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"role_tag": "deck:<role>"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"name": "create-deck"' "$TMP_DIR/capabilities.json" >/dev/null
@@ -325,6 +342,28 @@ grep -F "context: opposite of bajo" "$TMP_DIR/add-dry.txt" >/dev/null
 grep -F "role: general" "$TMP_DIR/add-dry.txt" >/dev/null
 grep -F "tags: source:telegram deck:general" "$TMP_DIR/add-dry.txt" >/dev/null
 grep -F "field Example: El edificio es alto." "$TMP_DIR/add-dry.txt" >/dev/null
+
+"$ROOT/bin/anki-tool" add-basic \
+  --deck Español \
+  --role general \
+  --front "audio" \
+  --back "аудио" \
+  --model "Basic (type in the answer + reverse + Spanish TTS)" \
+  > "$TMP_DIR/add-tts-dry.txt"
+grep -F "model: Basic (type in the answer + reverse + Spanish TTS)" \
+  "$TMP_DIR/add-tts-dry.txt" >/dev/null
+
+if "$ROOT/bin/anki-tool" add-basic \
+  --deck Español \
+  --role general \
+  --front "неподдерживаемая модель" \
+  --back "unsupported model" \
+  --model "Basic" \
+  > "$TMP_DIR/unsupported-model.txt" 2>&1; then
+  echo "expected add-basic to reject an unsupported card model" >&2
+  exit 1
+fi
+grep -F "Unsupported card model" "$TMP_DIR/unsupported-model.txt" >/dev/null
 
 "$ROOT/bin/anki-tool" add-basic \
   --deck Español \

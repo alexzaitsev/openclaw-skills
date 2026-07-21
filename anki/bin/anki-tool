@@ -21,7 +21,9 @@ sys.path.insert(0, str(ROOT / "lib"))
 from anki_connect import AnkiConnectError, invoke  # noqa: E402
 
 
-MODEL = "Basic (type in the answer + reverse)"
+DEFAULT_MODEL = "Basic (type in the answer + reverse)"
+SPANISH_TTS_MODEL = "Basic (type in the answer + reverse + Spanish TTS)"
+SUPPORTED_CARD_MODELS = (DEFAULT_MODEL, SPANISH_TTS_MODEL)
 DEFAULT_SOURCE = ROOT / "import-cards" / "cards.json"
 CONTEXT_SUFFIX = re.compile(
     r'<br><div class="context">Контекст:\s*(.*?)</div>\s*$',
@@ -116,21 +118,31 @@ def invoke_decks() -> list[str]:
     return [str(deck) for deck in decks]
 
 
-def invoke_model_fields() -> list[str]:
-    fields = invoke("modelFieldNames", modelName=MODEL)
+def resolve_model(value: str | None) -> str:
+    """Return one reviewed card model, defaulting to the non-audio model."""
+    model = (value or DEFAULT_MODEL).strip()
+    if model not in SUPPORTED_CARD_MODELS:
+        raise UserFacingError(
+            "Unsupported card model. Use one of: " + ", ".join(SUPPORTED_CARD_MODELS)
+        )
+    return model
+
+
+def invoke_model_fields(model: str = DEFAULT_MODEL) -> list[str]:
+    fields = invoke("modelFieldNames", modelName=model)
     if (
         not isinstance(fields, list)
         or not fields
         or any(not str(field).strip() for field in fields)
     ):
-        raise UserFacingError(f"AnkiConnect returned invalid fields for model {MODEL!r}.")
+        raise UserFacingError(f"AnkiConnect returned invalid fields for model {model!r}.")
     names = [str(field) for field in fields]
     if len(set(names)) != len(names):
-        raise UserFacingError(f"AnkiConnect returned duplicate fields for model {MODEL!r}.")
+        raise UserFacingError(f"AnkiConnect returned duplicate fields for model {model!r}.")
     missing = {"Front", "Back"} - set(names)
     if missing:
         raise UserFacingError(
-            f"Model {MODEL!r} is missing required field(s): {', '.join(sorted(missing))}."
+            f"Model {model!r} is missing required field(s): {', '.join(sorted(missing))}."
         )
     return names
 
@@ -234,6 +246,7 @@ def build_note(
     image_name: str | None = None,
     model_fields: list[str] | None = None,
     extra_fields: dict[str, str] | None = None,
+    model: str = DEFAULT_MODEL,
 ) -> dict[str, Any]:
     active_fields = model_fields or ["Front", "Back"]
     supplied_fields = extra_fields or {}
@@ -260,7 +273,7 @@ def build_note(
     fields.update({name: escape(value) for name, value in supplied_fields.items()})
     return {
         "deckName": deck,
-        "modelName": MODEL,
+        "modelName": model,
         "fields": fields,
         "options": {"allowDuplicate": False},
         "tags": normalize_tags(tags or []),
@@ -509,10 +522,11 @@ def cmd_models(_args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_fields(_args: argparse.Namespace) -> int:
-    """Print the live add-note schema for the fixed Anki model."""
-    fields = invoke_model_fields()
-    print(f"model: {MODEL}")
+def cmd_fields(args: argparse.Namespace) -> int:
+    """Print the live add-note schema for one reviewed Anki model."""
+    model = resolve_model(args.model)
+    fields = invoke_model_fields(model)
+    print(f"model: {model}")
     for index, name in enumerate(fields, 1):
         print(f"[{index}] {name}")
     if "Context" in fields:
@@ -526,13 +540,14 @@ def cmd_fields(_args: argparse.Namespace) -> int:
 def cmd_capabilities(args: argparse.Namespace) -> int:
     """Expose the reviewed command surface without inspecting source files."""
     payload = {
-        "version": 3,
-        "model": MODEL,
-        "model_fields": invoke_model_fields(),
+        "version": 4,
+        "default_model": DEFAULT_MODEL,
+        "card_models": list(SUPPORTED_CARD_MODELS),
+        "model_fields": invoke_model_fields(DEFAULT_MODEL),
         "deck_organization": {
             "physical_deck": "language",
             "role_tag": "deck:<role>",
-            "roles_reference": "DECKS.md",
+            "roles_reference": "ANKI_ROLES.md",
         },
         "commands": COMMAND_CAPABILITIES,
         "auxiliary_commands": [
@@ -578,6 +593,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     """Find exact front-field matches through AnkiConnect without mutating data."""
     deck = args.deck.strip() if args.deck else ""
     front = args.front.strip()
+    model = resolve_model(args.model) if args.model else ""
     if not front:
         raise UserFacingError("--front is required.")
     if deck:
@@ -586,6 +602,8 @@ def cmd_check(args: argparse.Namespace) -> int:
     terms = []
     if deck:
         terms.append(quote_deck_query(deck))
+    if model:
+        terms.append(f'note:"{quote_search_value(model)}"')
     terms.append(f'front:"{quote_search_value(front)}"')
     note_ids = invoke("findNotes", query=" ".join(terms))
     if not isinstance(note_ids, list):
@@ -610,6 +628,8 @@ def cmd_check(args: argparse.Namespace) -> int:
     print("CHECK")
     if deck:
         print(f"deck: {deck}")
+    if model:
+        print(f"model: {model}")
     print(f"front: {front}")
     print(f"matches: {len(matches)}")
     for index, (note_id, found_front, back) in enumerate(matches, 1):
@@ -1075,6 +1095,7 @@ def cmd_add_basic(args: argparse.Namespace) -> int:
     front = args.front.strip()
     back = args.back.strip()
     context = args.context.strip() if args.context else None
+    model = resolve_model(args.model)
     tags = new_note_tags(role, args.tag)
     extra_fields = collect_extra_fields(args.field)
 
@@ -1082,16 +1103,17 @@ def cmd_add_basic(args: argparse.Namespace) -> int:
         raise UserFacingError("--deck, --role, --front, and --back are required.")
 
     require_decks([deck])
-    model_fields = invoke_model_fields()
+    model_fields = invoke_model_fields(model)
     dry_run_image = Path(args.image).expanduser().name if args.image else None
     note = build_note(
-        deck, front, back, context, tags, dry_run_image, model_fields, extra_fields
+        deck, front, back, context, tags, dry_run_image, model_fields, extra_fields, model
     )
     addable = can_add(note)
 
     mode = "EXECUTE" if args.execute else "DRY RUN"
     print(f"{mode} add-basic")
     print(f"deck: {deck}")
+    print(f"model: {model}")
     print(f"role: {role}")
     print(f"front: {front}")
     print(f"back: {back}")
@@ -1112,7 +1134,7 @@ def cmd_add_basic(args: argparse.Namespace) -> int:
 
     image_name = store_image(args.image) if args.image else None
     note = build_note(
-        deck, front, back, context, tags, image_name, model_fields, extra_fields
+        deck, front, back, context, tags, image_name, model_fields, extra_fields, model
     )
     note_id = int(invoke("addNote", note=note))
     try:
@@ -1131,6 +1153,7 @@ def cmd_add_basic(args: argparse.Namespace) -> int:
 
 def cmd_add_batch(args: argparse.Namespace) -> int:
     tags = normalize_tags(args.tag)
+    model = resolve_model(args.model)
     plans: list[dict[str, Any]] = []
 
     for index, raw_note in enumerate(args.note, 1):
@@ -1178,7 +1201,7 @@ def cmd_add_batch(args: argparse.Namespace) -> int:
         fields[name] = raw_value.strip()
 
     require_decks([plan["deck"] for plan in plans])
-    model_fields = invoke_model_fields()
+    model_fields = invoke_model_fields(model)
     for plan in plans:
         plan["note"] = build_note(
             plan["deck"],
@@ -1189,12 +1212,14 @@ def cmd_add_batch(args: argparse.Namespace) -> int:
             None,
             model_fields,
             plan["extra_fields"],
+            model,
         )
     addable = invoke("canAddNotes", notes=[plan["note"] for plan in plans])
     if not isinstance(addable, list) or len(addable) != len(plans):
         raise UserFacingError("AnkiConnect returned invalid duplicate check data.")
 
     print("EXECUTE add-batch" if args.execute else "DRY RUN add-batch")
+    print(f"model: {model}")
     print(f"notes: {len(plans)}")
     for index, (plan, can_add_item) in enumerate(zip(plans, addable), 1):
         status = "OK" if can_add_item else "DUPLICATE/SKIP"
@@ -1472,13 +1497,16 @@ def build_parser() -> argparse.ArgumentParser:
     delete_deck.add_argument("--dry-run", action="store_true")
     delete_deck.set_defaults(func=cmd_delete_deck)
     subparsers.add_parser("models").set_defaults(func=cmd_models)
-    subparsers.add_parser("fields").set_defaults(func=cmd_fields)
+    fields = subparsers.add_parser("fields")
+    fields.add_argument("--model", default=DEFAULT_MODEL)
+    fields.set_defaults(func=cmd_fields)
     capabilities = subparsers.add_parser("capabilities")
     capabilities.add_argument("--json", action="store_true")
     capabilities.set_defaults(func=cmd_capabilities)
     check = subparsers.add_parser("check")
     check.add_argument("--deck", default="")
     check.add_argument("--front", required=True)
+    check.add_argument("--model", default="")
     check.set_defaults(func=cmd_check)
     search = subparsers.add_parser("search")
     search.add_argument("--deck", default="")
@@ -1530,6 +1558,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_basic.add_argument("--front", required=True)
     add_basic.add_argument("--back", required=True)
     add_basic.add_argument("--context", default="")
+    add_basic.add_argument("--model", default=DEFAULT_MODEL)
     add_basic.add_argument(
         "--field", action="append", nargs=2, metavar=("NAME", "VALUE"), default=[]
     )
@@ -1547,6 +1576,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="VALUE",
         required=True,
     )
+    add_batch.add_argument("--model", default=DEFAULT_MODEL)
     add_batch.add_argument(
         "--note-field",
         action="append",
