@@ -518,7 +518,7 @@ def cmd_fields(_args: argparse.Namespace) -> int:
     if "Context" in fields:
         print("context: stored in the Context field")
     else:
-        print("context: stored in Back as legacy context markup")
+        print("context: stored in Back as .context markup")
     print("extra fields: add-basic --field NAME VALUE; add-batch --note-field INDEX NAME VALUE")
     return 0
 
