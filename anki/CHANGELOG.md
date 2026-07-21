@@ -9,6 +9,8 @@
   cron jobs and dedicated statistics confirmation callbacks.
 - Added unit and mock integration coverage for metrics, rendering, cron
   reconciliation, failures, and stale plans.
+- Cron reconciliation explicitly includes disabled jobs so the retained
+  English schedule remains manageable while paused.
 
 ## Unreleased
 

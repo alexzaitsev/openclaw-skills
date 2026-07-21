@@ -66,7 +66,7 @@ def save(jobs: list[dict[str, object]]) -> None:
 def main() -> int:
     args = sys.argv[1:]
     jobs = load()
-    if args == ["cron", "list", "--json"]:
+    if args == ["cron", "list", "--all", "--json"]:
         print(json.dumps({"jobs": jobs, "total": len(jobs)}))
         return 0
     if len(args) == 4 and args[:2] == ["cron", "show"] and args[3] == "--json":

@@ -63,7 +63,7 @@ class CronManager:
 
     def load_job(self, deck: str) -> dict[str, Any]:
         spec = _spec(deck)
-        payload = self._run_json("cron", "list", "--json")
+        payload = self._run_json("cron", "list", "--all", "--json")
         jobs = payload.get("jobs") if isinstance(payload, dict) else None
         if not isinstance(jobs, list):
             raise CronContractError("OpenClaw returned an invalid cron job list.")
