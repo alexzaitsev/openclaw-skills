@@ -223,11 +223,7 @@ printed plan.
 Prepare multiple notes as one reviewed operation:
 
 ```bash
-/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool add-batch \
-  --note Español general "¿Puedes cambiar tus planes?" \
-    "Ты можешь изменить свои планы?" "optional disambiguation" \
-  --note Español verbos "cambiar" "менять; изменять" \
-  --tag source:telegram
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool add-batch --note Español general "¿Puedes cambiar tus planes?" "Ты можешь изменить свои планы?" "optional disambiguation" --note Español verbos "cambiar" "менять; изменять" --tag source:telegram
 ```
 
 Use `add-batch` whenever one operator request asks for multiple notes. It is a
