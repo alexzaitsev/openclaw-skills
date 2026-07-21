@@ -10,10 +10,10 @@ Use this skill to manage the operator's language-organized Anki collection
 through local AnkiConnect on the OpenClaw VM. Physical decks represent
 languages; each language has its own study-role tags in `DECKS.md`.
 
-For every request involving Anki cards, decks, checks, or additions, read this
-file before taking any action. The deployed `anki-tool` is the only permitted
-AnkiConnect client. Never substitute an inline Python snippet, `curl`, or a
-generic shell command, even for a read-only lookup.
+For every request involving Anki cards, decks, checks, additions, statistics,
+or notification settings, read this file before taking any action. Use only
+the reviewed executables documented here. Never substitute an inline Python
+snippet, `curl`, or a generic shell command, even for a read-only lookup.
 
 ## Critical Confirmation UI Rule
 
@@ -30,8 +30,8 @@ text plan asking for confirmation is a contract failure, not a fallback UI.
 ## Reviewed Command Surface
 
 The exact `anki-tool` commands documented in this skill are the normal Anki
-tool surface. For a machine-readable current inventory, use this read-only
-command instead of inspecting files or source code:
+content-management surface. For a machine-readable current inventory, use
+this read-only command instead of inspecting files or source code:
 
 ```bash
 /home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool capabilities --json
@@ -42,11 +42,17 @@ the current model fields. If a requested operation is absent from that
 inventory, report that it is not supported; do not invent or implement it in
 the Telegram session.
 
+The statistics surface is the separately reviewed `anki-stats` executable
+documented in [Statistics notifications](#statistics-notifications). The agent
+may execute `anki-tool`, `anki-stats`, and `stage-inbound-image` only as
+documented here. It must never execute `anki-stats-worker`; that executable is
+reserved for declared OpenClaw command cron jobs.
+
 The agent must not initiate `find`, `ls`, `sed`, `grep`, `rg`, `cat`, shell
 loops, inline Python, `curl`, generic shell commands, or direct source-file
 inspection. Those actions are permitted only when the operator explicitly
-initiates that exact non-`anki-tool` action. This does not authorize the agent
-to infer such permission from a general Anki request.
+initiates that exact action. This does not authorize the agent to infer such
+permission from a general Anki request.
 
 ## Runtime Contract
 
@@ -333,6 +339,111 @@ Spanish language deck while preserving original deck history tags:
 The merge command is also dry-run by default. It must print counts by source
 deck before any execute-mode run.
 
+## Statistics notifications
+
+Statistics notifications use two reviewed executables inside this skill:
+
+- `anki-stats` is the agent-facing settings and preview helper;
+- `anki-stats-worker` is invoked only by declared OpenClaw command cron jobs.
+
+OpenClaw cron is the only notification scheduler. Do not create a `systemd`
+timer, system crontab, separate polling process, direct Telegram sender, or a
+second settings database.
+
+Show the current Spanish and English notification settings:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-stats settings --json
+```
+
+Explain the report metrics and deck-history limitations:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-stats explain
+```
+
+Preview one report in the current Telegram conversation:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-stats preview \
+  --deck Español
+```
+
+`settings`, `explain`, and `preview` are read-only with respect to cron. A
+preview does not run, reschedule, enable, or disable a cron job. For requests
+such as "send my Spanish report now", use `preview`; never call
+`openclaw cron run` from the agent.
+
+Prepare a notification settings change without applying it:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-stats configure \
+  --deck Español \
+  --enable \
+  --time 07:45 \
+  --days mon,tue,wed,thu,fri,sat
+```
+
+Use lowercase English weekday names from `sun,mon,tue,wed,thu,fri,sat`. Partial
+requests preserve unmentioned values. For example, "skip Sundays" reads the
+current job and changes only the weekday set.
+
+Pause one deck with a dry run:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-stats disable \
+  --deck English
+```
+
+Every `configure` or `disable` dry run prints the old settings, proposed
+settings, exact cron expression, and a stale-safe `plan_id`. A successful dry
+run must be sent through one Telegram `message` tool call with a concise diff,
+followed by `Подтверждаешь?`, and these buttons:
+
+```json
+{
+  "action": "send",
+  "channel": "telegram",
+  "accountId": "anki",
+  "target": "142309269",
+  "message": "<current and proposed statistics settings>\n\nПодтверждаешь?",
+  "buttons": [[
+    {
+      "text": "✅ Да",
+      "callback_data": "anki:stats:yes:<plan-id>",
+      "style": "success"
+    },
+    {
+      "text": "❌ Нет",
+      "callback_data": "anki:stats:no:<plan-id>",
+      "style": "danger"
+    }
+  ]]
+}
+```
+
+After the message tool call, return `NO_REPLY`. Do not reuse
+`anki:confirm:yes` or any `anki:verb:*` callback for statistics settings.
+
+Treat `callback_data: anki:stats:yes:<plan-id>` as confirmation only for the
+unchanged immediately preceding statistics plan with that exact ID. Execute
+the same command arguments with `--execute --plan-id <plan-id>`. Treat the
+matching `anki:stats:no:<plan-id>` as cancellation. A textual confirmation is
+also valid only for the unchanged immediately preceding plan. Any requested
+edit invalidates the old plan and requires a fresh dry run and buttons.
+
+Statistics configuration changes only the declared job's enabled state,
+time, weekdays, and timezone. The helper verifies the exact worker argv,
+working directory, Telegram account `anki`, operator destination, and all
+other immutable fields before and after execution. If that contract or the
+plan revision changed, report the rejection and do not improvise a cron
+command.
+
+The scheduled worker reads aggregate data through loopback AnkiConnect, prints
+one deterministic plain-text report, and never calls Telegram or a model. The
+agent must not run it directly, add it to agent exec approvals, or expose a
+general OpenClaw cron administration command.
+
 ## Telegram Confirmation Buttons
 
 For **every data-changing Anki operation** (`create-deck`, `delete-deck`,
@@ -616,10 +727,10 @@ current plan's dry run has completed and been shown to the operator.
 - Do not delete a parent deck with child decks; the helper refuses it so child
   decks must be inspected and deleted explicitly.
 - Do not initiate broad shell commands or source inspection. Unless the
-  operator explicitly requests that exact action, use the deployed
-  `/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool` executable.
-  It is the reviewed Python client for direct AnkiConnect access; do not
-  improvise inline Python, `curl`, or raw AnkiConnect requests.
+  operator explicitly requests that exact action, use only the deployed
+  `anki-tool`, `anki-stats`, and `stage-inbound-image` commands documented in
+  this skill. Do not improvise inline Python, `curl`, raw AnkiConnect requests,
+  direct OpenClaw cron commands, or `anki-stats-worker` execution.
 - Do not use the main OpenClaw Telegram chat for this workflow once the
   dedicated Anki Telegram account exists.
 

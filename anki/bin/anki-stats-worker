@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""Cron-only deterministic statistics report for one physical Anki deck."""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import os
+import re
+import sys
+from pathlib import Path
+from zoneinfo import ZoneInfoNotFoundError
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "lib"))
+
+from anki_connect import AnkiConnectError  # noqa: E402
+from stats_calculator import StatsDataError  # noqa: E402
+from stats_runtime import DEFAULT_TIMEZONE, collect_report, now_from_environment  # noqa: E402
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Render one scheduled Anki report.")
+    parser.add_argument("--deck", required=True, choices=["Español", "English"])
+    args = parser.parse_args()
+    timezone = os.environ.get("ANKI_STATS_TIMEZONE", DEFAULT_TIMEZONE)
+    lock_root = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp"))
+    slug = re.sub(r"[^a-z0-9]+", "-", args.deck.casefold()).strip("-")
+    lock_path = lock_root / f"openclaw-anki-stats-{os.getuid()}-{slug}.lock"
+    with lock_path.open("a+", encoding="utf-8") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise StatsDataError(f"A statistics run is already active for {args.deck}.") from exc
+        report = collect_report(
+            args.deck,
+            timezone,
+            sync_first=True,
+            now=now_from_environment(),
+        )
+    print(report["text"])
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (
+        AnkiConnectError,
+        OSError,
+        StatsDataError,
+        ValueError,
+        ZoneInfoNotFoundError,
+    ) as exc:
+        print(f"Anki statistics failed: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None

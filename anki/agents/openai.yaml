@@ -2,7 +2,7 @@ interface:
   display_name: "Anki"
   short_description: "Add cards to language-specific Anki decks"
   brand_color: "#2B6CB0"
-  default_prompt: "For every Anki request, read $anki before acting. Use only its anki-tool: check/search for lookups and dry-run/confirmed commands for changes; never use inline Python or curl."
+  default_prompt: "For every Anki request, read $anki before acting. Use only its reviewed anki-tool and anki-stats commands; never use inline Python, curl, direct cron commands, or the cron-only worker."
 
 policy:
   allow_implicit_invocation: true

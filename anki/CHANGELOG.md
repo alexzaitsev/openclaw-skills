@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-07-20
+
+- Added deterministic per-deck statistics calculation and plain-text reports.
+- Added the cron-only `anki-stats-worker` and the reviewed `anki-stats`
+  settings/preview helper.
+- Added stale-safe, immutable-contract validation for the declared OpenClaw
+  cron jobs and dedicated statistics confirmation callbacks.
+- Added unit and mock integration coverage for metrics, rendering, cron
+  reconciliation, failures, and stale plans.
+
 ## Unreleased
 
 - For an irregular **Spanish** verb whose infinitive already exists, the
