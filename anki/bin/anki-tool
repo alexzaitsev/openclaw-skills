@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import sys
+import unicodedata
 from html import escape
 from html.parser import HTMLParser
 from pathlib import Path
@@ -298,8 +299,8 @@ def note_tags(note: dict[str, Any], note_id: int) -> list[str]:
 
 
 def tag_key(tag: str) -> str:
-    """Use Anki's case-insensitive tag identity for planning changes."""
-    return tag.casefold()
+    """Use Anki's case- and Unicode-normalized tag identity for planning."""
+    return unicodedata.normalize("NFC", tag).casefold()
 
 
 def same_tag_set(actual: list[str], expected: list[str]) -> bool:

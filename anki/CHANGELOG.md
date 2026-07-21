@@ -16,9 +16,10 @@
 
 - Added Spanish role `números`, which creates `deck:números` for number and
   number-focused practice.
-- Fixed `edit-note` and `edit-batch` tag verification to compare the reviewed
-  tag set rather than AnkiConnect's response order. Batch updates now continue
-  when Anki normalizes tag order after a successful write.
+- Fixed `edit-note` and `edit-batch` tag verification to compare a
+  case- and Unicode-normalized reviewed tag set rather than AnkiConnect's
+  response order. Batch updates now continue when Anki normalizes tag order or
+  Unicode representation after a successful write.
 - Added a restrained Markdown hierarchy and Russian localization to statistics
   reports, including deterministic dates, weekdays, durations, and plurals.
 - Simplified report wording to `Последние 7 дней`, labelled mature items as

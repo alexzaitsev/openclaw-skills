@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import sys
+import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -124,7 +125,13 @@ class Handler(BaseHTTPRequestHandler):
                 response["result"] = []
         elif action == "notesInfo":
             response["result"] = [
-                self.known_notes[note_id]
+                {
+                    **self.known_notes[note_id],
+                    "tags": [
+                        unicodedata.normalize("NFD", tag)
+                        for tag in self.known_notes[note_id]["tags"]
+                    ],
+                }
                 for note_id in params["notes"]
                 if note_id in self.known_notes
             ]
@@ -443,15 +450,16 @@ grep -F "source: verbos cards=1 notes=1" "$TMP_DIR/merge.txt" >/dev/null
   --context "англ. say" \
   --add-tag source:telegram \
   --add-tag grammar::verbs \
+  --add-tag deck:números \
   --remove-tag review-later \
   > "$TMP_DIR/edit-dry.txt"
 grep -F "DRY RUN edit-note" "$TMP_DIR/edit-dry.txt" >/dev/null
 grep -F "current_context: <none>" "$TMP_DIR/edit-dry.txt" >/dev/null
 grep -F "proposed_context: англ. say" "$TMP_DIR/edit-dry.txt" >/dev/null
 grep -F "current_tags: source:old review-later" "$TMP_DIR/edit-dry.txt" >/dev/null
-grep -F "add_tags: source:telegram grammar::verbs" "$TMP_DIR/edit-dry.txt" >/dev/null
+grep -F "add_tags: source:telegram grammar::verbs deck:números" "$TMP_DIR/edit-dry.txt" >/dev/null
 grep -F "remove_tags: review-later" "$TMP_DIR/edit-dry.txt" >/dev/null
-grep -F "proposed_tags: source:old source:telegram grammar::verbs" "$TMP_DIR/edit-dry.txt" >/dev/null
+grep -F "proposed_tags: source:old source:telegram grammar::verbs deck:números" "$TMP_DIR/edit-dry.txt" >/dev/null
 grep -F "result: dry run only" "$TMP_DIR/edit-dry.txt" >/dev/null
 
 "$ROOT/bin/anki-tool" edit-note \
@@ -461,6 +469,7 @@ grep -F "result: dry run only" "$TMP_DIR/edit-dry.txt" >/dev/null
   --context "англ. say" \
   --add-tag source:telegram \
   --add-tag grammar::verbs \
+  --add-tag deck:números \
   --remove-tag review-later \
   --execute \
   > "$TMP_DIR/edit-execute.txt"
@@ -468,7 +477,7 @@ grep -F "result: updated note 7001" "$TMP_DIR/edit-execute.txt" >/dev/null
 grep -F "verified_front: decir (hablar)" "$TMP_DIR/edit-execute.txt" >/dev/null
 grep -F "verified_back: говорить; сказать" "$TMP_DIR/edit-execute.txt" >/dev/null
 grep -F "verified_context: англ. say" "$TMP_DIR/edit-execute.txt" >/dev/null
-grep -F "verified_tags: grammar::verbs source:old source:telegram" "$TMP_DIR/edit-execute.txt" >/dev/null
+grep -F "verified_tags: deck:números grammar::verbs source:old source:telegram" "$TMP_DIR/edit-execute.txt" >/dev/null
 grep -F "sync: requested" "$TMP_DIR/edit-execute.txt" >/dev/null
 
 "$ROOT/bin/anki-tool" edit-batch \
