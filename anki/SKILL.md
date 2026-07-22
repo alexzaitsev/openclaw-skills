@@ -252,11 +252,13 @@ exact dry-run digest:
 ```
 
 Never invent, omit, or replace `--image-sha256`. A changed image invalidates
-the plan and requires a new dry run. Report both `verified_deck` and
-`verified_image` after a successful execution. The helper accepts images only
-from its content-addressed inbound staging directory, checks their size, MIME
-signature, dimensions, and digest, and verifies the stored media before it
-reports success.
+the plan and requires a new dry run. For Spanish, retain the normal default/TTS
+choice from `TG_BUTTONS.md`: prepare both model alternatives with this same
+staged image and digest, then include that exact digest in whichever confirmed
+execute command runs. Report both `verified_deck` and `verified_image` after a
+successful execution. The helper accepts images only from its content-addressed
+inbound staging directory, checks their size, MIME signature, dimensions, and
+digest, and verifies the stored media before it reports success.
 
 Prepare multiple notes as one reviewed operation:
 

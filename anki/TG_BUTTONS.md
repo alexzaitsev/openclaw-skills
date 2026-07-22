@@ -70,6 +70,10 @@ exact order:
 `anki:confirm:audio` executes only the corresponding reviewed audio-model add
 command(s). `anki:confirm:no` cancels both alternatives. Do not offer the
 audio button for English or non-Spanish cards: the audio model is `es_MX` only.
+When the addition also has one staged image, both alternatives must use the
+same reviewed image metadata and SHA-256; execute the selected command with its
+unchanged `--image` path and `--image-sha256` value. Do not create a separate
+image confirmation or attach a different file to the audio alternative.
 
 ## Irregular Spanish verb forms
 
