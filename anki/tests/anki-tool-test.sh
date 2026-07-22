@@ -18,6 +18,7 @@ trap cleanup EXIT
 python3 - "$PORT" "$TMP_DIR/actions.log" > "$TMP_DIR/server.log" 2>&1 <<'PY' &
 from __future__ import annotations
 
+import base64
 import json
 import sys
 import unicodedata
@@ -36,6 +37,7 @@ class Handler(BaseHTTPRequestHandler):
     note_cards = {}
     next_note_id = 123456789
     next_card_id = 301
+    media = {}
     known_notes = {
         7001: {
             "fields": {
@@ -116,13 +118,21 @@ class Handler(BaseHTTPRequestHandler):
                     response["error"] = "imported note is missing its deck role tag"
             response["result"] = [True for _ in params["notes"]]
         elif action == "addNote":
+            note = params["note"]
             note_id = type(self).next_note_id
             card_ids = [type(self).next_card_id, type(self).next_card_id + 1]
             type(self).next_note_id += 1
             type(self).next_card_id += 2
             type(self).note_cards[note_id] = card_ids
+            type(self).known_notes[note_id] = {
+                "fields": {
+                    name: {"value": value} for name, value in note["fields"].items()
+                },
+                "tags": list(note["tags"]),
+            }
             for card_id in card_ids:
                 type(self).card_decks[card_id] = "Default"
+                type(self).card_notes[card_id] = note_id
             response["result"] = note_id
         elif action == "findNotes":
             query = params["query"]
@@ -212,7 +222,19 @@ class Handler(BaseHTTPRequestHandler):
                     type(self).deck_names.discard(deck)
             response["result"] = None
         elif action == "storeMediaFile":
+            try:
+                type(self).media[params["filename"]] = base64.b64decode(
+                    params["data"], validate=True
+                )
+            except Exception:
+                response["error"] = "invalid media data"
             response["result"] = params.get("filename")
+        elif action == "retrieveMediaFile":
+            media = type(self).media.get(params["filename"])
+            response["result"] = base64.b64encode(media).decode("ascii") if media else False
+        elif action == "deleteMediaFile":
+            type(self).media.pop(params["filename"], None)
+            response["result"] = None
         else:
             response["error"] = f"unsupported action: {action}"
 
@@ -234,6 +256,17 @@ if ! kill -0 "$SERVER_PID" 2>/dev/null; then
 fi
 
 export ANKI_CONNECT_URL="http://127.0.0.1:$PORT"
+export ANKI_INBOUND_ROOTS="$TMP_DIR/inbound"
+export ANKI_STAGING_ROOT="$TMP_DIR/staging"
+mkdir -p "$TMP_DIR/inbound"
+python3 - "$TMP_DIR/inbound/source.png" <<'PY'
+from pathlib import Path
+
+# Valid 1x1 PNG with a complete IHDR header is enough for deterministic validation.
+Path(__import__("sys").argv[1]).write_bytes(
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
+)
+PY
 
 python3 - "$ROOT/bin/anki-tool" <<'PY'
 import runpy
@@ -297,7 +330,7 @@ grep -F "model: Basic (type in the answer + reverse + Spanish TTS)" \
   "$TMP_DIR/tts-fields.txt" >/dev/null
 
 "$ROOT/bin/anki-tool" capabilities --json > "$TMP_DIR/capabilities.json"
-grep -F '"version": 4' "$TMP_DIR/capabilities.json" >/dev/null
+grep -F '"version": 5' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"default_model": "Basic (type in the answer + reverse)"' \
   "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"roles_reference": "ANKI_ROLES.md"' "$TMP_DIR/capabilities.json" >/dev/null
@@ -310,6 +343,80 @@ grep -F '"name": "edit-batch"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"name": "tag-decks"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"name": "stage-inbound-image"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"Context"' "$TMP_DIR/capabilities.json" >/dev/null
+
+"$ROOT/bin/stage-inbound-image" --source "$TMP_DIR/inbound/source.png" --json \
+  > "$TMP_DIR/staged-image.json"
+STAGED_IMAGE="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["path"])' "$TMP_DIR/staged-image.json")"
+IMAGE_SHA256="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["sha256"])' "$TMP_DIR/staged-image.json")"
+[[ "$STAGED_IMAGE" == "$TMP_DIR/staging/inbound-"*.png ]]
+[[ "$IMAGE_SHA256" =~ ^[0-9a-f]{64}$ ]]
+
+"$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "gato" --back "кот" --image "$STAGED_IMAGE" \
+  > "$TMP_DIR/add-image-dry.txt"
+grep -F "image: image/png 1x1 33 bytes" "$TMP_DIR/add-image-dry.txt" >/dev/null
+grep -F "image_sha256: $IMAGE_SHA256" "$TMP_DIR/add-image-dry.txt" >/dev/null
+grep -F "image_placement: Front" "$TMP_DIR/add-image-dry.txt" >/dev/null
+
+if "$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "без хеша" --back "no hash" --image "$STAGED_IMAGE" --execute > "$TMP_DIR/add-image-no-hash.txt" 2>&1; then
+  echo "expected image execute without reviewed hash to fail" >&2
+  exit 1
+fi
+grep -F -- "--image-sha256 from the reviewed dry run is required" "$TMP_DIR/add-image-no-hash.txt" >/dev/null
+
+"$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "gato" --back "кот" --image "$STAGED_IMAGE" --image-sha256 "$IMAGE_SHA256" --execute \
+  > "$TMP_DIR/add-image-execute.txt"
+grep -F "verified_image: anki-img-$IMAGE_SHA256.png" "$TMP_DIR/add-image-execute.txt" >/dev/null
+grep -F "storeMediaFile" "$TMP_DIR/actions.log" >/dev/null
+grep -F "retrieveMediaFile" "$TMP_DIR/actions.log" >/dev/null
+
+if "$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "вне staging" --back "outside" --image "$TMP_DIR/inbound/source.png" > "$TMP_DIR/add-image-outside.txt" 2>&1; then
+  echo "expected image outside staging to fail" >&2
+  exit 1
+fi
+grep -F "Image must be under one of" "$TMP_DIR/add-image-outside.txt" >/dev/null
+
+python3 - "$STAGED_IMAGE" <<'PY'
+from pathlib import Path
+
+Path(__import__("sys").argv[1]).write_bytes(
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x02\x00\x00\x00\x01\x08\x02\x00\x00\x00"
+)
+PY
+if "$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "подмена" --back "changed" --image "$STAGED_IMAGE" --image-sha256 "$IMAGE_SHA256" --execute > "$TMP_DIR/add-image-changed.txt" 2>&1; then
+  echo "expected changed staged image to invalidate the plan" >&2
+  exit 1
+fi
+grep -F "Image changed after the reviewed dry run" "$TMP_DIR/add-image-changed.txt" >/dev/null
+
+printf 'GIF89a' > "$TMP_DIR/inbound/unsupported.gif"
+if "$ROOT/bin/stage-inbound-image" --source "$TMP_DIR/inbound/unsupported.gif" > "$TMP_DIR/stage-gif.txt" 2>&1; then
+  echo "expected GIF staging to fail" >&2
+  exit 1
+fi
+grep -F "Only JPEG and PNG images are supported" "$TMP_DIR/stage-gif.txt" >/dev/null
+
+python3 - "$TMP_DIR/inbound/too-large.png" "$TMP_DIR/inbound/too-many-pixels.png" <<'PY'
+from pathlib import Path
+import sys
+
+header = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+Path(sys.argv[1]).write_bytes(
+    header + b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00" + b"x" * (10 * 1024 * 1024)
+)
+Path(sys.argv[2]).write_bytes(
+    header + b"\x00\x00\x10\x00\x00\x00\x10\x00\x08\x02\x00\x00\x00"
+)
+PY
+if "$ROOT/bin/stage-inbound-image" --source "$TMP_DIR/inbound/too-large.png" > "$TMP_DIR/stage-too-large.txt" 2>&1; then
+  echo "expected oversized image staging to fail" >&2
+  exit 1
+fi
+grep -F "Image size must be between" "$TMP_DIR/stage-too-large.txt" >/dev/null
+if "$ROOT/bin/stage-inbound-image" --source "$TMP_DIR/inbound/too-many-pixels.png" > "$TMP_DIR/stage-too-many-pixels.txt" 2>&1; then
+  echo "expected oversized dimensions to fail" >&2
+  exit 1
+fi
+grep -F "Image dimensions must be positive" "$TMP_DIR/stage-too-many-pixels.txt" >/dev/null
 
 "$ROOT/bin/anki-tool" check --deck Español --front decir > "$TMP_DIR/check-present.txt"
 grep -F "CHECK" "$TMP_DIR/check-present.txt" >/dev/null

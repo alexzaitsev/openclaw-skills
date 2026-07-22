@@ -12,7 +12,9 @@ new dry run and new buttons.
 
 Do not paste raw helper output into Telegram. A concise approval view must keep
 the details needed to approve the actual write: for additions, deck, role,
-model, front, back, context, extra fields, tags, and duplicate result; for
+model, front, back, context, extra fields, tags, and duplicate result. For an
+addition with one staged image, also include its JPEG/PNG type, dimensions,
+byte size, SHA-256, and `Front` placement, but never its VM path; for
 edits, current front text and only the changes; for moves/imports/merges, the
 source, destination, affected count, and tag changes; and for deck deletion,
 the exact deck name, card/note counts, emptiness, and non-empty warning.

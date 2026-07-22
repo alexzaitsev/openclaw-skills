@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import hashlib
 import json
 import re
@@ -19,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from anki_connect import AnkiConnectError, invoke  # noqa: E402
+from inbound_media import ImageValidationError, PreparedImage, STAGING_ROOT, validate_image  # noqa: E402
 
 
 DEFAULT_MODEL = "Basic (type in the answer + reverse)"
@@ -41,7 +43,7 @@ COMMAND_CAPABILITIES = [
     {"name": "check", "mutates": False, "dry_run": False, "fields": ["Front"]},
     {"name": "search", "mutates": False, "dry_run": False, "fields": ["Front", "Back", "Context"]},
     {"name": "sync", "mutates": True, "dry_run": False, "fields": []},
-    {"name": "add-basic", "mutates": True, "dry_run": True, "fields": ["LanguageDeck", "StudyRole", "Front", "Back", "Context", "model extras"]},
+    {"name": "add-basic", "mutates": True, "dry_run": True, "fields": ["LanguageDeck", "StudyRole", "Front", "Back", "Context", "image from staging", "model extras"]},
     {"name": "add-batch", "mutates": True, "dry_run": True, "fields": ["LanguageDeck", "StudyRole", "Front", "Back", "Context", "model extras"]},
     {"name": "edit-note", "mutates": True, "dry_run": True, "fields": ["Front", "Back", "Context", "tags"]},
     {"name": "edit-batch", "mutates": True, "dry_run": True, "fields": ["Back", "Context", "tags"]},
@@ -228,13 +230,64 @@ def quote_deck_query(deck: str) -> str:
     return f'deck:"{escaped}"'
 
 
-def store_image(path_text: str) -> str:
-    path = Path(path_text).expanduser().resolve()
-    if not path.exists():
-        raise UserFacingError(f"Image not found: {path}")
-    data = base64.b64encode(path.read_bytes()).decode("ascii")
-    stored = invoke("storeMediaFile", filename=path.name, data=data)
-    return str(stored)
+def prepare_staged_image(path_text: str, expected_sha256: str = "") -> PreparedImage:
+    try:
+        return validate_image(
+            path_text, allowed_roots=(STAGING_ROOT,), expected_sha256=expected_sha256
+        )
+    except ImageValidationError as exc:
+        raise UserFacingError(str(exc)) from exc
+
+
+def retrieve_image_digest(filename: str) -> str | None:
+    stored = invoke("retrieveMediaFile", filename=filename)
+    if stored is False or stored is None:
+        return None
+    if not isinstance(stored, str):
+        raise UserFacingError("AnkiConnect returned invalid media verification data.")
+    try:
+        return hashlib.sha256(base64.b64decode(stored, validate=True)).hexdigest()
+    except (ValueError, binascii.Error) as exc:
+        raise UserFacingError("AnkiConnect returned invalid base64 media data.") from exc
+
+
+def store_image(image: PreparedImage) -> bool:
+    existing_digest = retrieve_image_digest(image.media_filename)
+    if existing_digest and existing_digest != image.sha256:
+        raise UserFacingError("Existing Anki media filename has different content.")
+    try:
+        stored = invoke(
+            "storeMediaFile",
+            filename=image.media_filename,
+            data=base64.b64encode(image.data).decode("ascii"),
+        )
+        if str(stored) != image.media_filename:
+            raise UserFacingError("AnkiConnect did not return the expected media filename.")
+        if retrieve_image_digest(image.media_filename) != image.sha256:
+            raise UserFacingError("AnkiConnect media verification failed after upload.")
+    except Exception as exc:
+        if existing_digest is None:
+            try:
+                if retrieve_image_digest(image.media_filename) == image.sha256:
+                    invoke("deleteMediaFile", filename=image.media_filename)
+            except Exception:
+                pass
+        if isinstance(exc, UserFacingError):
+            raise
+        raise UserFacingError(f"Image upload failed: {exc}") from exc
+    return existing_digest is None
+
+
+def verify_note_image(note_id: int, image: PreparedImage) -> None:
+    note = note_info(note_id)
+    fields = note.get("fields")
+    front = fields.get("Front") if isinstance(fields, dict) else None
+    value = front.get("value") if isinstance(front, dict) else None
+    expected_markup = f'src="{image.media_filename}"'
+    if not isinstance(value, str) or expected_markup not in value:
+        raise UserFacingError(f"Created note {note_id}, but image reference verification failed.")
+    if retrieve_image_digest(image.media_filename) != image.sha256:
+        raise UserFacingError(f"Created note {note_id}, but image media verification failed.")
 
 
 def build_note(
@@ -540,7 +593,7 @@ def cmd_fields(args: argparse.Namespace) -> int:
 def cmd_capabilities(args: argparse.Namespace) -> int:
     """Expose the reviewed command surface without inspecting source files."""
     payload = {
-        "version": 4,
+        "version": 5,
         "default_model": DEFAULT_MODEL,
         "card_models": list(SUPPORTED_CARD_MODELS),
         "model_fields": invoke_model_fields(DEFAULT_MODEL),
@@ -1104,7 +1157,8 @@ def cmd_add_basic(args: argparse.Namespace) -> int:
 
     require_decks([deck])
     model_fields = invoke_model_fields(model)
-    dry_run_image = Path(args.image).expanduser().name if args.image else None
+    image = prepare_staged_image(args.image) if args.image else None
+    dry_run_image = image.media_filename if image else None
     note = build_note(
         deck, front, back, context, tags, dry_run_image, model_fields, extra_fields, model
     )
@@ -1122,7 +1176,9 @@ def cmd_add_basic(args: argparse.Namespace) -> int:
     if tags:
         print(f"tags: {' '.join(tags)}")
     if args.image:
-        print(f"image: {args.image}")
+        print(f"image: {image.media_type} {image.width}x{image.height} {len(image.data)} bytes")
+        print(f"image_sha256: {image.sha256}")
+        print("image_placement: Front")
     print(f"can_add: {str(addable).lower()}")
 
     if not addable:
@@ -1132,20 +1188,38 @@ def cmd_add_basic(args: argparse.Namespace) -> int:
         print("result: dry run only")
         return 0
 
-    image_name = store_image(args.image) if args.image else None
+    if image and not args.image_sha256:
+        raise UserFacingError("--image-sha256 from the reviewed dry run is required for --execute.")
+    image = prepare_staged_image(args.image, args.image_sha256) if args.image else None
+    image_uploaded = store_image(image) if image else False
     note = build_note(
-        deck, front, back, context, tags, image_name, model_fields, extra_fields, model
+        deck, front, back, context, tags, image.media_filename if image else None,
+        model_fields, extra_fields, model
     )
-    note_id = int(invoke("addNote", note=note))
+    try:
+        note_id = int(invoke("addNote", note=note))
+    except Exception as exc:
+        cleanup = ""
+        if image and image_uploaded:
+            try:
+                invoke("deleteMediaFile", filename=image.media_filename)
+                cleanup = " Uploaded media was removed."
+            except Exception:
+                cleanup = " Uploaded media may remain; run Anki Check Media before cleanup."
+        raise UserFacingError(f"Card was not created: {exc}{cleanup}") from exc
     try:
         card_ids = place_note_cards(note_id, deck)
     except UserFacingError as exc:
         raise UserFacingError(
             f"Created note {note_id}, but deck placement failed: {exc}"
         ) from exc
+    if image:
+        verify_note_image(note_id, image)
     print(f"result: created note {note_id}")
     print(f"cards: {' '.join(str(card_id) for card_id in card_ids)}")
     print(f"verified_deck: {deck}")
+    if image:
+        print(f"verified_image: {image.media_filename}")
     request_sync(f"Created note {note_id} in deck {deck}")
     print("sync: requested")
     return 0
@@ -1337,15 +1411,14 @@ def build_import_plans(
             context = str(card.get("context") or "").strip() or None
             image = str(card.get("image") or "").strip() or None
             if image:
-                image_path = Path(image).expanduser()
-                if not image_path.is_absolute():
-                    image_path = source.parent / image_path
-                image = str(image_path)
+                raise UserFacingError(
+                    "import-json images are not supported. Add each reviewed staged image with add-basic."
+                )
             if not front or not back:
                 raise UserFacingError(
                     f"Card #{card_index} in deck {group['deck']} needs spanish and russian."
                 )
-            dry_image = Path(image).name if image else None
+            dry_image = None
             tags = new_note_tags(group["role"], [])
             note = build_note(group["deck"], front, back, context, tags, dry_image)
             plans.append(
@@ -1355,7 +1428,6 @@ def build_import_plans(
                     "front": front,
                     "back": back,
                     "context": context,
-                    "image": image,
                     "tags": tags,
                     "note": note,
                 }
@@ -1391,14 +1463,13 @@ def cmd_import_json(args: argparse.Namespace) -> int:
             skipped += 1
             continue
         if args.execute:
-            image_name = store_image(plan["image"]) if plan["image"] else None
             note = build_note(
                 plan["deck"],
                 plan["front"],
                 plan["back"],
                 plan["context"],
                 plan["tags"],
-                image_name,
+                None,
             )
             note_id = int(invoke("addNote", note=note))
             place_note_cards(note_id, plan["deck"])
@@ -1564,6 +1635,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_basic.add_argument("--tag", action="append", default=[])
     add_basic.add_argument("--image", default="")
+    add_basic.add_argument("--image-sha256", default="")
     add_basic.add_argument("--execute", action="store_true")
     add_basic.add_argument("--dry-run", action="store_true")
     add_basic.set_defaults(func=cmd_add_basic)

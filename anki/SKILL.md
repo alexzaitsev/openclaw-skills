@@ -224,6 +224,40 @@ role tag with `--tag`. The same invariant applies to `add-batch` and
 The command is a dry run by default. Add `--execute` only after reviewing the
 printed plan.
 
+### Attach one inbound image to a new card
+
+Support one explicitly requested Telegram attachment on the `Front` of one new
+`add-basic` note. Do not attach a screenshot merely because it was used to
+read a word or phrase: attach it only when the operator asks for a card *with*
+that image. JPEG and PNG are the only supported formats. Do not use image URLs,
+generated images, GIF/WebP, an arbitrary host path, a batch addition, or an
+existing-note edit in this V1 workflow.
+
+First stage the exact inbound attachment as in the screenshot workflow. Then
+prepare the normal one-note dry run with its returned staging path:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool add-basic --deck Español --role general --front "gato" --back "кот" --image "<staged-path>"
+```
+
+The dry run must show `image`, `image_sha256`, and `image_placement: Front`.
+The Telegram confirmation view must state the format, dimensions, byte size,
+SHA-256, and that the image will be attached to `Front`; do not reveal the VM
+path. Treat that image digest as part of the reviewed plan. After the normal
+inline approval, execute the unchanged command with both `--execute` and the
+exact dry-run digest:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool add-basic --deck Español --role general --front "gato" --back "кот" --image "<staged-path>" --image-sha256 "<reviewed-sha256>" --execute
+```
+
+Never invent, omit, or replace `--image-sha256`. A changed image invalidates
+the plan and requires a new dry run. Report both `verified_deck` and
+`verified_image` after a successful execution. The helper accepts images only
+from its content-addressed inbound staging directory, checks their size, MIME
+signature, dimensions, and digest, and verifies the stored media before it
+reports success.
+
 Prepare multiple notes as one reviewed operation:
 
 ```bash
@@ -333,7 +367,8 @@ Import the existing JSON card format:
 Each import group must contain both its physical language `deck` and its
 language-specific study `role`, for example
 `{"deck":"Español","role":"general","cards":[...]}`. The helper adds
-`deck:<role>` to every imported note.
+`deck:<role>` to every imported note. JSON imports cannot contain images; use
+the reviewed one-note staged-image flow above instead.
 
 Legacy administrative operation: merge Spanish category decks into the
 Spanish language deck while preserving original deck history tags:
@@ -593,7 +628,9 @@ helper accepts only validated images from OpenClaw's managed inbound-media
 locations.
 Do not use `cp`, `mv`, `read`, or the `image` tool directly on the original
 out-of-workspace path. Never ask which phrase or word the operator means before
-inspecting the staged image with model-side vision.
+inspecting the staged image with model-side vision. The staging helper creates
+a private content-addressed filename; treat its path as immutable for one
+reviewed plan.
 
 For a completed Duolingo translation exercise, use the submitted answer as the
 target Spanish content. It is usually shown as green selected words above the
@@ -611,6 +648,8 @@ the Spanish word or phrase on the front and a concise Russian translation on
 the back. Use text visible in another language only to understand meaning; the
 card back should still be Russian. Add examples only when the operator asks for
 examples or when a requested verb workflow requires conjugation examples.
+Do not retain the screenshot in Anki by default. Retain it only through the
+explicit one-card image workflow above.
 
 Treat requests such as "добавь эту фразу" as sufficient intent to prepare the
 normal dry-run plan. Call
