@@ -49,19 +49,7 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
         current["answers"], "ответ", "ответа", "ответов"
     )
     learning_items = _count(
-        state["learning_items"],
-        "учебный элемент",
-        "учебных элемента",
-        "учебных элементов",
-    )
-    mature_items = _count(
-        state["mature_items"],
-        "элемент закреплён",
-        "элемента закреплено",
-        "элементов закреплено",
-    )
-    cards = _count(
-        state["cards"], "карточка", "карточки", "карточек"
+        state["learning_items"], "элемент", "элемента", "элементов"
     )
 
     yesterday_lines = [
@@ -98,13 +86,10 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
     lines = [
         f"**{flag} {label} · {deck}**",
         "",
-        f"**Колода сейчас · {_display_date(run_date)}**",
-        f"{learning_items} · начато {state['introduced_items']}",
-        f"{mature_items} · {cards}",
+        f"**Сегодня · {_display_date(run_date)}**",
         (
-            f"**Доступно сейчас:** новых {state['due_new']} · "
-            f"изучаются {state['due_learning']} · "
-            f"к повторению {state['due_review']}"
+            f"{learning_items} · {state['introduced_items']} начато · "
+            f"{state['mature_items']} {_mature_word(state['mature_items'])}"
         ),
         "",
         f"**Вчера · {_display_date(report_date)}**",
@@ -134,28 +119,14 @@ def render_compact_report(
         current["answers"], "ответ", "ответа", "ответов"
     )
     learning_items = _count(
-        state["learning_items"],
-        "учебный элемент",
-        "учебных элемента",
-        "учебных элементов",
-    )
-    mature_items = _count(
-        state["mature_items"],
-        "элемент закреплён",
-        "элемента закреплено",
-        "элементов закреплено",
+        state["learning_items"], "элемент", "элемента", "элементов"
     )
     return "\n".join(
         [
             f"**{flag} {label} · {deck}**",
-            f"**Колода сейчас · {_display_date(run_date)}:** "
-            f"{learning_items} · {mature_items} · "
-            f"карточек {state['cards']}",
-            (
-                f"**Доступно:** новых {state['due_new']} · "
-                f"изучаются {state['due_learning']} · "
-                f"к повторению {state['due_review']}"
-            ),
+            f"**Сегодня · {_display_date(run_date)}:** "
+            f"{learning_items} · {state['introduced_items']} начато · "
+            f"{state['mature_items']} {_mature_word(state['mature_items'])}",
             f"**Вчера · {_display_date(report_date)}**",
             _spoiler(
                 [
@@ -214,6 +185,12 @@ def _count(value: int, one: str, few: str, many: str) -> str:
     return f"{value} {word}"
 
 
+def _mature_word(value: int) -> str:
+    """Return the compact maturity label used in the deck-state summary."""
+    remainder_100 = abs(value) % 100
+    return "закреплён" if remainder_100 % 10 == 1 and remainder_100 != 11 else "закреплено"
+
+
 def _comparison_line(current: dict[str, Any], previous: dict[str, Any]) -> str:
     previous_answers = previous["answers"]
     if previous_answers == 0 and current["answers"] > 0:
@@ -224,14 +201,4 @@ def _comparison_line(current: dict[str, Any], previous: dict[str, Any]) -> str:
         change = round((current["answers"] - previous_answers) * 100 / previous_answers)
         answer_change = f"ответы {change:+d}%"
 
-    retention = (
-        f"**Запоминание {format_percent(current['true_retention'])}**"
-    )
-    if current["true_retention"] is not None and previous["true_retention"] is not None:
-        previous_retention = format_percent(previous["true_retention"])
-        retention += (
-            f" · {answer_change} · неделей ранее {previous_retention}"
-        )
-    else:
-        retention += f" · {answer_change}"
-    return retention
+    return f"**Запоминание {format_percent(current['true_retention'])}** · {answer_change}"

@@ -45,13 +45,12 @@ class StatisticsTest(unittest.TestCase):
         self.assertEqual(_count(21, *forms), "21 ответ")
         self.assertEqual(_count(22, *forms), "22 ответа")
 
-    def test_comparison_shows_previous_retention_value(self) -> None:
+    def test_comparison_shows_answer_change_only(self) -> None:
         current = {"answers": 180, "true_retention": 0.97}
         previous = {"answers": 134, "true_retention": 0.98}
         self.assertEqual(
             _comparison_line(current, previous),
-            "**Запоминание 97%** · ответы +34% · "
-            "неделей ранее 98%",
+            "**Запоминание 97%** · ответы +34%",
         )
 
     def test_history_metrics_distinguish_answers_cards_and_first_attempts(self) -> None:
@@ -137,7 +136,7 @@ class StatisticsTest(unittest.TestCase):
         self.assertNotIn("Отчёт за", report)
         self.assertNotIn("America/Edmonton", report)
         self.assertLess(
-            report.index("**Колода сейчас · пн 20 июля**"),
+            report.index("**Сегодня · пн 20 июля**"),
             report.index("**Вчера · вс 19 июля**"),
         )
         self.assertLess(
@@ -157,37 +156,28 @@ class StatisticsTest(unittest.TestCase):
         self.assertIn("Вс 1 · 100%", report)
         self.assertIn("**1 ответ** · 1/7 дней", report)
         self.assertIn("||", report)
-        self.assertIn("**Колода сейчас · пн 20 июля**", report)
-        self.assertIn(
-            "**Доступно сейчас:** новых 1 · "
-            "изучаются 0 · к повторению 2",
-            report,
-        )
-        self.assertIn("1 учебный элемент · начато 1", report)
-        self.assertIn(
-            "0 элементов закреплено · 2 карточки", report
-        )
+        self.assertIn("**Сегодня · пн 20 июля**", report)
+        self.assertNotIn("Доступно сейчас", report)
+        self.assertNotIn("карточек", report)
+        self.assertIn("1 элемент · 1 начато · 0 закреплено", report)
         self.assertLessEqual(len(report), 4096)
 
         compact = render_compact_report("Español", history, state)
         self.assertIn("**🇪🇸 Испанский · Español**", compact)
         self.assertLess(
-            compact.index("**Колода сейчас · пн 20 июля:**"),
+            compact.index("**Сегодня · пн 20 июля:**"),
             compact.index("**Вчера · вс 19 июля**"),
         )
         self.assertIn("**Вчера · вс 19 июля**\n||1 ответ", compact)
         self.assertIn("**Последние 7 дней**\n||**1 ответ**", compact)
         self.assertIn(
-            "**Колода сейчас · пн 20 июля:** "
-            "1 учебный элемент",
+            "**Сегодня · пн 20 июля:** "
+            "1 элемент · 1 начато · 0 закреплено",
             compact,
         )
-        self.assertIn("0 элементов закреплено", compact)
-        self.assertIn(
-            "**Доступно:** новых 1 · изучаются 0 · "
-            "к повторению 2",
-            compact,
-        )
+        self.assertIn("0 закреплено", compact)
+        self.assertNotIn("Доступно", compact)
+        self.assertNotIn("карточек", compact)
 
 
 if __name__ == "__main__":

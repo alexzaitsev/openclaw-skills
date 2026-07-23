@@ -14,6 +14,9 @@
 
 ## Unreleased
 
+- Simplified the deck-state summary to one line with total, introduced, and
+  consolidated learning items; removed card and due-now counts. The seven-day
+  summary now omits the preceding week's retention value.
 - Ordinary Spanish-addition controls now use `➕ Добавить` and `🔊 С аудио`.
   The cancel button is no longer shown for that flow.
 - Added the reviewed Spanish TTS card model
