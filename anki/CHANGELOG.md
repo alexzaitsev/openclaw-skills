@@ -14,6 +14,8 @@
 
 ## Unreleased
 
+- Ordinary Spanish-addition controls now use `➕ Добавить` and `🔊 С аудио`.
+  The cancel button is no longer shown for that flow.
 - Added the reviewed Spanish TTS card model
   `Basic (type in the answer + reverse + Spanish TTS)`, which uses on-device
   `es_MX` speech only when the Spanish side is shown and stores no audio media.
@@ -22,8 +24,8 @@
   in every add plan and rejects all other model names.
 - Replaced `DECKS.md` with `ANKI_ROLES.md`, added `ANKI_CARD_TYPES.md`, and
   moved Telegram confirmation-button rules into `TG_BUTTONS.md`. Ordinary
-  Spanish additions now offer `🔊 Да, с аудио` between `✅ Да` and `❌ Нет`;
-  irregular Spanish verb forms retain their dedicated forms choice.
+  Spanish additions now offer a separate audio choice; irregular Spanish verb
+  forms retain their dedicated forms choice.
 - Context markup now uses only the card model's shared `.context` CSS; inline
   context presentation is not supported.
 - Added Spanish role `números`, which creates `deck:números` for number and

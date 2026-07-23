@@ -7,7 +7,7 @@ physical language deck and study role are still selected separately through
 | Model | Use it when | Audio behavior |
 | --- | --- | --- |
 | `Basic (type in the answer + reverse)` | Default for every new card, including all English cards and ordinary Spanish cards. | No TTS. |
-| `Basic (type in the answer + reverse + Spanish TTS)` | The operator explicitly requests audio for a new Spanish card, or chooses `🔊 Да, с аудио` after the reviewed addition plan. | Uses Anki's on-device `{{tts es_MX:Front}}` only when the Spanish `Front` field is shown. It creates no MP3 and adds no media file. |
+| `Basic (type in the answer + reverse + Spanish TTS)` | The operator explicitly requests audio for a new Spanish card, or chooses `🔊 С аудио` after the reviewed addition plan. | Uses Anki's on-device `{{tts es_MX:Front}}` only when the Spanish `Front` field is shown. It creates no MP3 and adds no media file. |
 
 The Spanish TTS model has the same `Front` and `Back` fields, two directions,
 CSS, and typing-answer behavior as the default model. It differs only by the

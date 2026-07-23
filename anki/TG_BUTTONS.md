@@ -48,19 +48,14 @@ exact order:
   "message": "<reviewed default and audio addition plans>\\n\\nЧто добавить?",
   "buttons": [[
     {
-      "text": "✅ Да",
+      "text": "➕ Добавить",
       "callback_data": "anki:confirm:yes",
       "style": "success"
     },
     {
-      "text": "🔊 Да, с аудио",
+      "text": "🔊 С аудио",
       "callback_data": "anki:confirm:audio",
       "style": "primary"
-    },
-    {
-      "text": "❌ Нет",
-      "callback_data": "anki:confirm:no",
-      "style": "danger"
     }
   ]]
 }
@@ -68,8 +63,8 @@ exact order:
 
 `anki:confirm:yes` executes only the reviewed default-model add command(s).
 `anki:confirm:audio` executes only the corresponding reviewed audio-model add
-command(s). `anki:confirm:no` cancels both alternatives. Do not offer the
-audio button for English or non-Spanish cards: the audio model is `es_MX` only.
+command(s). Do not offer the audio button for English or non-Spanish cards:
+the audio model is `es_MX` only.
 When the addition also has one staged image, both alternatives must use the
 same reviewed image metadata and SHA-256; execute the selected command with its
 unchanged `--image` path and `--image-sha256` value. Do not create a separate
