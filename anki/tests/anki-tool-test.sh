@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_DIR="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$(mktemp -d)")"
+export ANKI_EDIT_BATCH_PLAN_DIR="$TMP_DIR/edit-batch-plans"
 PORT=18765
 SERVER_PID=""
 
@@ -56,8 +57,12 @@ FAIL_SYNC = ACTIONS_LOG.with_suffix(".fail-sync")
 
 class Handler(BaseHTTPRequestHandler):
     deck_names = {"adjetivos", "Default", "English", "Español", "Vacía", "verbos"}
-    card_decks = {301: "Default", 302: "Default"}
-    card_notes = {101: 7001, 102: 7002, 201: 7003}
+    card_decks = {
+        101: "Español", 102: "Español", 201: "Español",
+        301: "Default", 302: "Default",
+        401: "Español", 402: "Español", 403: "Español", 404: "Español",
+    }
+    card_notes = {101: 7001, 102: 7002, 201: 7003, 401: 7004, 402: 7004, 403: 7005, 404: 7005}
     note_cards = {}
     next_note_id = 123456789
     next_card_id = 301
@@ -83,6 +88,20 @@ class Handler(BaseHTTPRequestHandler):
                 "Back": {"value": "я говорю"},
             },
             "tags": [],
+        },
+        7004: {
+            "fields": {
+                "Front": {"value": "hablo"},
+                "Back": {"value": "я говорю"},
+            },
+            "tags": ["deck:verbos"],
+        },
+        7005: {
+            "fields": {
+                "Front": {"value": "hablas"},
+                "Back": {"value": "ты говоришь"},
+            },
+            "tags": ["deck:verbos"],
         }
     }
 
@@ -223,6 +242,13 @@ class Handler(BaseHTTPRequestHandler):
                     card_id for card_id, card_note_id in self.card_notes.items()
                     if card_note_id == note_id
                 )
+            elif "is:new" in query:
+                if query != 'deck:"Español" is:new tag:deck:verbos':
+                    response["error"] = f"unexpected structured new-card query: {query}"
+                else:
+                    # 7004 is fully new. 7005 has one matching new card and
+                    # one non-new card, so the helper must report it separately.
+                    response["result"] = [401, 402, 403]
             elif "Vacía" in query:
                 response["result"] = []
             elif "adjetivos" in query:
@@ -502,6 +528,16 @@ grep -F "SEARCH" "$TMP_DIR/search.txt" >/dev/null
 grep -F "matches: 1" "$TMP_DIR/search.txt" >/dev/null
 grep -F "note_id=7003 yo digo -> я говорю" "$TMP_DIR/search.txt" >/dev/null
 grep -F "result: found" "$TMP_DIR/search.txt" >/dev/null
+
+"$ROOT/bin/anki-tool" list-notes --deck Español --role verbos --state new \
+  > "$TMP_DIR/list-new-verbos.txt"
+grep -F "LIST NOTES" "$TMP_DIR/list-new-verbos.txt" >/dev/null
+grep -F "role_tag: deck:verbos" "$TMP_DIR/list-new-verbos.txt" >/dev/null
+grep -F "matching_cards: 3" "$TMP_DIR/list-new-verbos.txt" >/dev/null
+grep -F "notes: 1" "$TMP_DIR/list-new-verbos.txt" >/dev/null
+grep -F "note_id=7004 hablo -> я говорю" "$TMP_DIR/list-new-verbos.txt" >/dev/null
+grep -F "excluded_mixed_state_notes: 1" "$TMP_DIR/list-new-verbos.txt" >/dev/null
+grep -F "excluded_note=7005 matching_new_cards=1 total_cards=2" "$TMP_DIR/list-new-verbos.txt" >/dev/null
 
 "$ROOT/bin/anki-tool" add-basic \
   --deck Español \
@@ -790,6 +826,7 @@ grep -F "[1] add_tags: review-later" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[1] remove_tags: source:old" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[1] proposed_tags: deck:números grammar::verbs source:telegram review-later" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[2] proposed_tags: review-later source:telegram grammar::verbs" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
+grep -F "execute_command: edit-batch --execute --execute-stored --plan-id" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "result: dry run only" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-batch-dry.txt")"
 [[ "$PLAN_ID" =~ ^[0-9a-f]{16}$ ]]
@@ -799,14 +836,7 @@ PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-batch-dry.txt")"
 DRIFT_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-batch-drift-dry.txt")"
 "$ROOT/bin/anki-tool" edit-note --note-id 7001 --add-tag changed-after-plan --execute --plan-id "$DRIFT_PLAN_ID" \
   > "$TMP_DIR/edit-batch-drift.txt"
-if "$ROOT/bin/anki-tool" edit-batch \
-  --note 7001 "=" "англ. hablar" \
-  --note 7003 "я говорю (speak)" "англ. speak" \
-  --add-tag review-later \
-  --remove-tag source:old \
-  --note-add-tag 7003 source:telegram \
-  --note-add-tag 7003 grammar::verbs \
-  --execute --plan-id "$PLAN_ID" \
+if "$ROOT/bin/anki-tool" edit-batch --execute --execute-stored --plan-id "$PLAN_ID" \
   > "$TMP_DIR/edit-batch-stale.txt" 2>&1; then
   echo "expected edit-batch to reject stale plan" >&2
   exit 1
@@ -824,14 +854,7 @@ grep -F "Batch plan is stale" "$TMP_DIR/edit-batch-stale.txt" >/dev/null
 FRESH_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-batch-fresh-dry.txt")"
 
 SYNC_BEFORE="$(action_count sync)"
-"$ROOT/bin/anki-tool" edit-batch \
-  --note 7001 "=" "англ. hablar" \
-  --note 7003 "я говорю (speak)" "англ. speak" \
-  --add-tag review-later \
-  --remove-tag source:old \
-  --note-add-tag 7003 source:telegram \
-  --note-add-tag 7003 grammar::verbs \
-  --execute --plan-id "$FRESH_PLAN_ID" \
+"$ROOT/bin/anki-tool" edit-batch --execute --execute-stored --plan-id "$FRESH_PLAN_ID" \
   > "$TMP_DIR/edit-batch-execute.txt"
 grep -F "EXECUTE edit-batch" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "updated_note=7001 front=decir (hablar)" "$TMP_DIR/edit-batch-execute.txt" >/dev/null

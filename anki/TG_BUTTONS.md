@@ -8,6 +8,10 @@ Each callback and a matching text reply (`да` / `нет`) authorize only the
 unchanged, immediately preceding plan. Any scope, content, model, or
 collection-state change requires a new dry run and new buttons.
 
+For `edit-batch`, the later `✅ Да` callback must execute the dry run's exact
+stored-plan command (`--execute --execute-stored --plan-id ...`), never a
+reconstructed sequence of note arguments.
+
 Do not paste raw helper output. Show enough to approve the write: additions
 need deck, role, model, fields, tags, and duplicate result; edits need current
 front and changes; moves need source, target, count, and tags; note deletion

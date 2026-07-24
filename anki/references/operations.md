@@ -30,7 +30,21 @@ it; if absent, prepare the normal addition dry run.
 ```
 
 Use `search` to inspect several notes, find forms, or collect note IDs. It
-returns note IDs, front, back, and context.
+returns note IDs, front, back, and context. Its `--query` is literal note text,
+not raw Anki search syntax: do not pass `is:new`, `tag:`, or another filter
+expression to it.
+
+To inspect unstarted notes for one reviewed role, use the structured lookup:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool list-notes --deck Español --role verbos --state new
+```
+
+It constructs the fixed Anki filter itself, returns only notes whose generated
+cards are all new, and reports mixed-state notes separately. It is read-only;
+classifying a returned form as regular or irregular remains a conversational
+decision. Never delete a candidate without the usual note-deletion dry run and
+later explicit confirmation.
 
 ```bash
 /home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool sync
@@ -121,4 +135,7 @@ Use `edit-batch` whenever one request affects multiple existing notes. Each
 `--note` is `NOTE_ID BACK [CONTEXT]`; use `=` to retain back or context and
 `""` to clear context. Global tag deltas use `--add-tag` / `--remove-tag`; one
 note uses `--note-add-tag NOTE_ID TAG` / `--note-remove-tag NOTE_ID TAG`.
-Unrelated tags are preserved.
+Unrelated tags are preserved. The dry run prints an `execute_command`. After
+the later confirmation, invoke that exact stored-plan command rather than
+retyping the `--note` payload; it expires after 30 minutes and revalidates all
+current note state before any write.

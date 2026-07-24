@@ -52,6 +52,12 @@ are separate. `ANKI_CARD_TYPES.md` selects the model. Read both before every
    state change invalidates the plan: rerun the complete dry run and request a
    new confirmation.
 
+For `edit-batch`, the dry run materializes the reviewed payload privately for
+30 minutes. After confirmation, execute only its reported
+`edit-batch --execute --execute-stored --plan-id <reviewed-plan-id>` command;
+never reconstruct a long sequence of `--note` arguments. The helper reloads
+the exact payload and rechecks every note before writing.
+
 Report a successful mutation as `sync: requested`, never as completed: this
 AnkiConnect version does not expose sync completion. The other Anki client must
 still sync to download server-side changes.
@@ -80,7 +86,10 @@ still sync to download server-side changes.
 
 - Do not expose AnkiConnect, edit Anki's SQLite collection, or use raw
   `findNotes`, `notesInfo`, or `updateNoteFields` calls.
-- Use only `check` or `search` for read-only card discovery.
+- Use `check` for an exact Front lookup and `search` only for literal note
+  text. Never pass Anki query syntax such as `is:new` or `tag:` to `search`:
+  it intentionally treats that input as text. Use `list-notes` for the
+  reviewed deck/role/state lookup instead.
 - Do not move, edit, or delete without the mutation protocol. Use
   `delete-note` for an existing card: it deletes the underlying note and every
   card generated from it. Inspect a deck before deletion; never delete a

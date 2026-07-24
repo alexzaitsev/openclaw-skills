@@ -8,8 +8,11 @@ import base64
 import binascii
 import hashlib
 import json
+import os
 import re
 import sys
+import tempfile
+import time
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -33,6 +36,17 @@ DEFAULT_MODEL = "Basic (type in the answer + reverse)"
 SPANISH_TTS_MODEL = "Basic (type in the answer + reverse + Spanish TTS)"
 SUPPORTED_CARD_MODELS = (DEFAULT_MODEL, SPANISH_TTS_MODEL)
 DEFAULT_SOURCE = ROOT / "import-cards" / "cards.json"
+EDIT_BATCH_PLAN_TTL_SECONDS = 30 * 60
+EDIT_BATCH_PLAN_DIR = Path(
+    os.environ.get("ANKI_EDIT_BATCH_PLAN_DIR", "/home/claw/.openclaw/state/anki-edit-batch-plans")
+)
+EDIT_BATCH_PLAN_FIELDS = (
+    "note",
+    "add_tag",
+    "remove_tag",
+    "note_add_tag",
+    "note_remove_tag",
+)
 COMMAND_CAPABILITIES = [
     {"name": "ping", "mutates": False, "dry_run": False, "fields": []},
     {"name": "decks", "mutates": False, "dry_run": False, "fields": []},
@@ -44,6 +58,7 @@ COMMAND_CAPABILITIES = [
     {"name": "fields", "mutates": False, "dry_run": False, "fields": []},
     {"name": "check", "mutates": False, "dry_run": False, "fields": ["Front"]},
     {"name": "search", "mutates": False, "dry_run": False, "fields": ["Front", "Back", "Context"]},
+    {"name": "list-notes", "mutates": False, "dry_run": False, "fields": ["deck", "role", "state"]},
     {"name": "sync", "mutates": True, "dry_run": False, "fields": []},
     {"name": "add-basic", "mutates": True, "dry_run": True, "fields": ["LanguageDeck", "StudyRole", "Front", "Back", "Context", "image from staging", "model extras"]},
     {"name": "add-batch", "mutates": True, "dry_run": True, "fields": ["LanguageDeck", "StudyRole", "Front", "Back", "Context", "model extras"]},
@@ -55,6 +70,92 @@ COMMAND_CAPABILITIES = [
 
 class UserFacingError(Exception):
     pass
+
+
+def edit_batch_plan_path(plan_id: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{16}", plan_id):
+        raise UserFacingError("Invalid edit-batch plan ID.")
+    return EDIT_BATCH_PLAN_DIR / f"{plan_id}.json"
+
+
+def prune_expired_edit_batch_plans(now: float) -> None:
+    if not EDIT_BATCH_PLAN_DIR.exists():
+        return
+    for path in EDIT_BATCH_PLAN_DIR.glob("*.json"):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            expires_at = float(payload.get("expires_at", 0))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            path.unlink(missing_ok=True)
+            continue
+        if expires_at <= now:
+            path.unlink(missing_ok=True)
+
+
+def save_edit_batch_plan(plan_id: str, args: argparse.Namespace) -> None:
+    now = time.time()
+    EDIT_BATCH_PLAN_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(EDIT_BATCH_PLAN_DIR, 0o700)
+    prune_expired_edit_batch_plans(now)
+    payload = {
+        "version": 1,
+        "operation": "edit-batch",
+        "created_at": now,
+        "expires_at": now + EDIT_BATCH_PLAN_TTL_SECONDS,
+        "args": {field: getattr(args, field) for field in EDIT_BATCH_PLAN_FIELDS},
+    }
+    target = edit_batch_plan_path(plan_id)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{plan_id}.", suffix=".tmp", dir=EDIT_BATCH_PLAN_DIR
+    )
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            descriptor = -1
+            json.dump(payload, handle, ensure_ascii=False, sort_keys=True)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, target)
+    finally:
+        if descriptor != -1:
+            os.close(descriptor)
+        Path(temporary_name).unlink(missing_ok=True)
+
+
+def load_edit_batch_plan(plan_id: str) -> dict[str, Any]:
+    now = time.time()
+    prune_expired_edit_batch_plans(now)
+    path = edit_batch_plan_path(plan_id)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise UserFacingError(
+            "The reviewed edit-batch plan is unavailable or expired; run a new dry run."
+        ) from exc
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        raise UserFacingError("The stored edit-batch plan is invalid; run a new dry run.") from exc
+    if (
+        payload.get("version") != 1
+        or payload.get("operation") != "edit-batch"
+        or float(payload.get("expires_at", 0)) <= now
+        or not isinstance(payload.get("args"), dict)
+        or any(field not in payload["args"] for field in EDIT_BATCH_PLAN_FIELDS)
+    ):
+        path.unlink(missing_ok=True)
+        raise UserFacingError("The reviewed edit-batch plan is unavailable or expired; run a new dry run.")
+    return payload["args"]
+
+
+def restore_edit_batch_plan_args(args: argparse.Namespace) -> None:
+    if not args.plan_id:
+        raise UserFacingError("--execute-stored requires the plan_id from the reviewed edit-batch dry run.")
+    if any(getattr(args, field) for field in EDIT_BATCH_PLAN_FIELDS):
+        raise UserFacingError(
+            "--execute-stored accepts no --note or tag changes; it executes only the reviewed plan."
+        )
+    stored = load_edit_batch_plan(args.plan_id)
+    for field in EDIT_BATCH_PLAN_FIELDS:
+        setattr(args, field, stored[field])
 
 
 def quote_search_value(value: str) -> str:
@@ -832,6 +933,81 @@ def cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_list_notes(args: argparse.Namespace) -> int:
+    """List notes through a fixed, reviewed deck/role/state filter."""
+    deck = args.deck.strip()
+    role = args.role.strip()
+    state = args.state.strip()
+    if not deck or not role:
+        raise UserFacingError("--deck and --role are required.")
+    if state != "new":
+        raise UserFacingError("Only --state new is supported.")
+    require_decks([deck])
+
+    role_tag = deck_role_tag(role)
+    query = f"{quote_deck_query(deck)} is:new tag:{role_tag}"
+    matching_cards = invoke("findCards", query=query)
+    if not isinstance(matching_cards, list):
+        raise UserFacingError("AnkiConnect returned an invalid card list.")
+    matching_card_ids = [int(card_id) for card_id in matching_cards]
+    matching_info = invoke("cardsInfo", cards=matching_card_ids) if matching_card_ids else []
+    if not isinstance(matching_info, list) or len(matching_info) != len(matching_card_ids):
+        raise UserFacingError("AnkiConnect returned invalid card info.")
+
+    matching_by_note: dict[int, set[int]] = {}
+    for card_id, card in zip(matching_card_ids, matching_info):
+        if not isinstance(card, dict) or card.get("note") is None:
+            raise UserFacingError("AnkiConnect returned a card without a note ID.")
+        matching_by_note.setdefault(int(card["note"]), set()).add(card_id)
+
+    included: list[tuple[int, dict[str, Any]]] = []
+    mixed: list[tuple[int, int, int]] = []
+    for note_id in sorted(matching_by_note):
+        all_card_ids = cards_for_note(note_id)
+        all_info = invoke("cardsInfo", cards=all_card_ids)
+        if not isinstance(all_info, list) or len(all_info) != len(all_card_ids):
+            raise UserFacingError(f"AnkiConnect returned invalid card info for note {note_id}.")
+        if any(
+            not isinstance(card, dict) or str(card.get("deckName") or "") != deck
+            for card in all_info
+        ):
+            raise UserFacingError(
+                f"Note {note_id} has cards outside deck {deck}; inspect it manually before changing it."
+            )
+        matched_ids = matching_by_note[note_id]
+        if set(all_card_ids) != matched_ids:
+            mixed.append((note_id, len(matched_ids), len(all_card_ids)))
+            continue
+        note = note_info(note_id)
+        tags = note_tags(note, note_id)
+        if role_tag not in tags:
+            raise UserFacingError(
+                f"Note {note_id} matched the role filter but does not have tag {role_tag}."
+            )
+        included.append((note_id, note))
+
+    print("LIST NOTES")
+    print(f"deck: {deck}")
+    print(f"role: {role}")
+    print(f"role_tag: {role_tag}")
+    print("state: new")
+    print(f"matching_cards: {len(matching_card_ids)}")
+    print(f"notes: {len(included)}")
+    for index, (note_id, note) in enumerate(included, 1):
+        content = read_note_content(note, note_id)
+        print(f"[{index}] note_id={note_id} {content['front']} -> {content['back']}")
+        if content["context"]:
+            print(f"[{index}] context: {content['context']}")
+        print(f"[{index}] tags: {format_tags(note_tags(note, note_id))}")
+    print(f"excluded_mixed_state_notes: {len(mixed)}")
+    for note_id, matching_count, total_count in mixed:
+        print(
+            f"excluded_note={note_id} matching_new_cards={matching_count} total_cards={total_count}"
+        )
+    print("result: found" if included else "result: none")
+    return 0
+
+
 def cmd_edit_note(args: argparse.Namespace) -> int:
     """Dry-run or apply a text and tag edit to one existing note."""
     if (
@@ -967,6 +1143,12 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
 
 def cmd_edit_batch(args: argparse.Namespace) -> int:
     """Dry-run or apply coordinated Back/context edits to existing notes."""
+    if args.execute_stored:
+        if not args.execute:
+            raise UserFacingError("--execute-stored requires --execute.")
+        restore_edit_batch_plan_args(args)
+    if not args.note:
+        raise UserFacingError("At least one --note is required for an edit-batch dry run.")
     global_add_tags = normalize_tags(args.add_tag)
     global_remove_tags = normalize_tags(args.remove_tag)
     per_note_add_tags: dict[int, list[str]] = {}
@@ -1105,6 +1287,8 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
             raise UserFacingError(
                 "Batch plan is stale or differs from the reviewed dry run; run a new dry run."
             )
+    else:
+        save_edit_batch_plan(plan_id, args)
 
     print("EXECUTE edit-batch" if args.execute else "DRY RUN edit-batch")
     print(f"notes: {len(plans)}")
@@ -1127,6 +1311,7 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         print(f"[{index}] changes: {' '.join(changes) if changes else '<none>'}")
     print(f"plan_id: {plan_id}")
     if not args.execute:
+        print(f"execute_command: edit-batch --execute --execute-stored --plan-id {plan_id}")
         print("result: dry run only")
         return 0
 
@@ -1167,6 +1352,7 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         )
 
     print(f"result: updated={len(updated_ids)}")
+    edit_batch_plan_path(plan_id).unlink(missing_ok=True)
     request_sync(f"Updated batch note(s) {updated_ids}")
     print("sync: requested")
     return 0
@@ -1828,6 +2014,11 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--deck", default="")
     search.add_argument("--query", required=True)
     search.set_defaults(func=cmd_search)
+    list_notes = subparsers.add_parser("list-notes")
+    list_notes.add_argument("--deck", required=True)
+    list_notes.add_argument("--role", required=True)
+    list_notes.add_argument("--state", required=True, choices=["new"])
+    list_notes.set_defaults(func=cmd_list_notes)
     edit_note = subparsers.add_parser("edit-note")
     edit_note.add_argument("--note-id", required=True, type=int)
     edit_note.add_argument("--front")
@@ -1846,7 +2037,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         nargs="+",
         metavar="VALUE",
-        required=True,
+        default=[],
     )
     edit_batch.add_argument("--add-tag", action="append", default=[])
     edit_batch.add_argument("--remove-tag", action="append", default=[])
@@ -1858,6 +2049,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     edit_batch.add_argument("--plan-id", default="")
     edit_batch.add_argument("--execute", action="store_true")
+    edit_batch.add_argument("--execute-stored", action="store_true")
     edit_batch.add_argument("--dry-run", action="store_true")
     edit_batch.set_defaults(func=cmd_edit_batch)
     subparsers.add_parser("sync").set_defaults(func=cmd_sync)
