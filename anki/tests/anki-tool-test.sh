@@ -879,7 +879,7 @@ grep -F "DRY RUN delete-note" "$TMP_DIR/delete-note-dry.txt" >/dev/null
 grep -F "note_id: 7001" "$TMP_DIR/delete-note-dry.txt" >/dev/null
 grep -F "front: decir (hablar)" "$TMP_DIR/delete-note-dry.txt" >/dev/null
 grep -F "cards: 1" "$TMP_DIR/delete-note-dry.txt" >/dev/null
-grep -F "card: 101 deck=Default" "$TMP_DIR/delete-note-dry.txt" >/dev/null
+grep -F "card: 101 deck=Español" "$TMP_DIR/delete-note-dry.txt" >/dev/null
 grep -F "warning: this deletes the note and every card generated from it" \
   "$TMP_DIR/delete-note-dry.txt" >/dev/null
 DELETE_NOTE_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/delete-note-dry.txt")"
