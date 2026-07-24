@@ -14,6 +14,9 @@
 
 ## Unreleased
 
+- Made the `anki-tool` mock integration harness portable and order-independent:
+  it canonicalizes temporary paths, derives fixture metadata and created IDs,
+  and verifies each sync call relative to the operation that triggered it.
 - Added a pure shared note-field layer. `add-basic`, `search`, `edit-note`,
   and `edit-batch` now consistently support both dedicated `Context` fields
   and the legacy context suffix in `Back`.
