@@ -23,6 +23,9 @@ dry-run, explicit-confirmation, stale-safe write model.
 - When changing the executable surface, confirmation contract, or deployment
   model, update `anki/SKILL.md`, `anki/TG_BUTTONS.md`, and the matching
   design/runbook in `../openclaw/skills/` together.
+- Verify deployed visibility with `openclaw skills list --agent anki --eligible
+  --json`. The skill is intentionally absent from the main workspace, where
+  `openclaw skills info anki --json` returns `not found`.
 
 ## Validation
 
