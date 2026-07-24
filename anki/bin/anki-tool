@@ -653,7 +653,16 @@ def cmd_delete_note(args: argparse.Namespace) -> int:
 
     invoke("deleteNotes", notes=[note_id])
     remaining = invoke("notesInfo", notes=[note_id])
-    if not isinstance(remaining, list) or remaining:
+    # AnkiConnect releases differ here: a deleted ID may yield no result, an
+    # empty result list, or a null element in the requested result position.
+    # All three confirm that the reviewed note is gone; a returned note does
+    # not.
+    removal_confirmed = (
+        remaining is None
+        or remaining == []
+        or (isinstance(remaining, list) and all(item is None for item in remaining))
+    )
+    if not removal_confirmed:
         raise UserFacingError(f"Deleted note {note_id}, but AnkiConnect could not verify removal.")
     print(f"result: deleted note {note_id}")
     print(f"deleted_cards: {len(card_ids)}")

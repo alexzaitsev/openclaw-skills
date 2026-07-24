@@ -177,6 +177,10 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 for note_id in params["notes"]
                 if note_id in self.known_notes
+            ] + [
+                None
+                for note_id in params["notes"]
+                if note_id not in self.known_notes
             ]
         elif action == "updateNoteFields":
             note = params["note"]
