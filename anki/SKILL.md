@@ -465,6 +465,12 @@ Use the irregular-verb message, button, and callback contract in
 unchanged complete plan; do not ask another question or run another dry run
 unless collection state, content, or requested scope changed.
 
+For a request that combines additions with different card types, languages, or
+workflows, offer an audio or irregular-verb alternative only when each choice
+still executes a complete plan for every requested card. If there is only one
+complete applicable plan, use the single `➕ Добавить` button specified in
+`TG_BUTTONS.md`; never make a button execute only part of the request.
+
 ## Confirmation Protocol For All Data Changes
 
 Every data-changing operation requires a two-message confirmation flow,

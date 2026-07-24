@@ -70,23 +70,40 @@ same reviewed image metadata and SHA-256; execute the selected command with its
 unchanged `--image` path and `--image-sha256` value. Do not create a separate
 image confirmation or attach a different file to the audio alternative.
 
+Offer alternatives only when every button executes a complete plan for the
+whole request. A request may combine languages, card types, or workflows. If
+the request has only one complete applicable plan, send one button only:
+
+```json
+[
+  {"text": "➕ Добавить", "callback_data": "anki:confirm:yes", "style": "success"}
+]
+```
+
+This button executes the complete reviewed plan. Never offer a button that
+would add only a subset of the requested cards. For example, do not offer an
+audio alternative for a mixed request unless its audio plan covers every
+requested addition.
+
 ## Irregular Spanish verb forms
 
-For the existing Spanish-only irregular-verb workflow, retain the forms choice
-instead of adding an audio button. When the infinitive is absent, use
-`✅ Да, с формами`, `⚠️ Да, инфинитив`, and `❌ Нет`, with callbacks
-`anki:verb:forms`, `anki:verb:infinitive`, and `anki:verb:no`. When the
-infinitive already exists, use only `✅ Да, с формами` and `❌ Нет` with
-`anki:verb:forms` and `anki:verb:no`.
+For the Spanish-only irregular-verb workflow, retain the forms choice instead
+of adding an audio button. When the infinitive is absent, use `➕ Добавить всё`
+and `🔤 Только инфинитив`, with callbacks `anki:verb:forms` and
+`anki:verb:infinitive`. When the infinitive already exists, use only
+`➕ Добавить всё` with callback `anki:verb:forms`.
 
 For an absent infinitive, the message is a comparison of the reviewed
 forms-and-infinitive plan and infinitive-only plan, followed by this row:
 
 ```json
 [
-  {"text": "✅ Да, с формами", "callback_data": "anki:verb:forms", "style": "success"},
-  {"text": "⚠️ Да, инфинитив", "callback_data": "anki:verb:infinitive", "style": "primary"},
-  {"text": "❌ Нет", "callback_data": "anki:verb:no", "style": "danger"}
+  {"text": "➕ Добавить всё", "callback_data": "anki:verb:forms", "style": "success"},
+  {
+    "text": "🔤 Только инфинитив",
+    "callback_data": "anki:verb:infinitive",
+    "style": "primary"
+  }
 ]
 ```
 
@@ -95,8 +112,7 @@ show the reviewed edit-and-forms plan, and use this row:
 
 ```json
 [
-  {"text": "✅ Да, с формами", "callback_data": "anki:verb:forms", "style": "success"},
-  {"text": "❌ Нет", "callback_data": "anki:verb:no", "style": "danger"}
+  {"text": "➕ Добавить всё", "callback_data": "anki:verb:forms", "style": "success"}
 ]
 ```
 

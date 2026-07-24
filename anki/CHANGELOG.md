@@ -29,6 +29,10 @@
   summary now omits the preceding week's retention value.
 - Ordinary Spanish-addition controls now use `➕ Добавить` and `🔊 С аудио`.
   The cancel button is no longer shown for that flow.
+- Irregular Spanish verb controls now use `➕ Добавить всё` and, when the
+  infinitive is absent, `🔤 Только инфинитив`; they show no refusal button.
+  For a mixed addition request, use only `➕ Добавить` when it is the sole
+  control that can execute the complete reviewed plan.
 - Added the reviewed Spanish TTS card model
   `Basic (type in the answer + reverse + Spanish TTS)`, which uses on-device
   `es_MX` speech only when the Spanish side is shown and stores no audio media.
@@ -55,9 +59,9 @@
 - Moved the report and run dates into the `Вчера` and `Колода сейчас` headings
   and removed the separate timezone line.
 - For an irregular **Spanish** verb whose infinitive already exists, the
-  confirmation now shows only `✅ Да, с формами` and `❌ Нет`; it no longer
-  offers a duplicate infinitive-only path. The forms choice applies the
-  reviewed existing-note edit and missing conjugation forms together.
+  confirmation does not offer a duplicate infinitive-only path. Its
+  `➕ Добавить всё` choice applies the reviewed existing-note edit and missing
+  conjugation forms together.
 - Made the required handling of `anki:verb:*` Telegram callbacks explicit:
   OpenClaw passes them to the agent as `callback_data: anki:verb:*`; execute
   the already reviewed selected plan immediately, without a further question
@@ -68,10 +72,9 @@
 
 - For a new irregular Spanish verb, the agent prepares two reviewed
   alternatives before any write: infinitive plus Latin American present-tense
-  forms, or the infinitive only. The Telegram choice uses
-  `✅ Да, с формами`, `⚠️ Да, инфинитив`, and `❌ Нет`; selecting one confirms
-  only its corresponding displayed dry run. `ver` is explicitly treated as
-  irregular.
+  forms, or the infinitive only. The Telegram choices are `➕ Добавить всё`
+  and `🔤 Только инфинитив`; selecting one confirms only its corresponding
+  displayed dry run. `ver` is explicitly treated as irregular.
 - `stage-inbound-image` accepts only the two managed OpenClaw inbound roots:
   the legacy global location and the dedicated Anki workspace location used by
   current Telegram attachment delivery. It still rejects arbitrary paths,
