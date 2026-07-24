@@ -37,6 +37,8 @@ SPANISH_TTS_MODEL = "Basic (type in the answer + reverse + Spanish TTS)"
 SUPPORTED_CARD_MODELS = (DEFAULT_MODEL, SPANISH_TTS_MODEL)
 DEFAULT_SOURCE = ROOT / "import-cards" / "cards.json"
 EDIT_BATCH_PLAN_TTL_SECONDS = 30 * 60
+LIST_NOTES_DEFAULT_LIMIT = 20
+LIST_NOTES_MAX_LIMIT = 50
 EDIT_BATCH_PLAN_DIR = Path(
     os.environ.get("ANKI_EDIT_BATCH_PLAN_DIR", "/home/claw/.openclaw/state/anki-edit-batch-plans")
 )
@@ -942,6 +944,12 @@ def cmd_list_notes(args: argparse.Namespace) -> int:
         raise UserFacingError("--deck and --role are required.")
     if state != "new":
         raise UserFacingError("Only --state new is supported.")
+    if args.offset < 0:
+        raise UserFacingError("--offset must not be negative.")
+    if not 1 <= args.limit <= LIST_NOTES_MAX_LIMIT:
+        raise UserFacingError(
+            f"--limit must be between 1 and {LIST_NOTES_MAX_LIMIT}."
+        )
     require_decks([deck])
 
     role_tag = deck_role_tag(role)
@@ -992,13 +1000,20 @@ def cmd_list_notes(args: argparse.Namespace) -> int:
     print(f"role_tag: {role_tag}")
     print("state: new")
     print(f"matching_cards: {len(matching_card_ids)}")
-    print(f"notes: {len(included)}")
-    for index, (note_id, note) in enumerate(included, 1):
+    print(f"matching_notes: {len(included)}")
+    print(f"offset: {args.offset}")
+    page = included[args.offset : args.offset + args.limit]
+    print(f"shown_notes: {len(page)}")
+    for index, (note_id, note) in enumerate(page, args.offset + 1):
         content = read_note_content(note, note_id)
         print(f"[{index}] note_id={note_id} {content['front']} -> {content['back']}")
         if content["context"]:
             print(f"[{index}] context: {content['context']}")
         print(f"[{index}] tags: {format_tags(note_tags(note, note_id))}")
+    remaining_notes = max(0, len(included) - args.offset - len(page))
+    print(f"remaining_notes: {remaining_notes}")
+    if remaining_notes:
+        print(f"next_offset: {args.offset + len(page)}")
     print(f"excluded_mixed_state_notes: {len(mixed)}")
     for note_id, matching_count, total_count in mixed:
         print(
@@ -2018,6 +2033,8 @@ def build_parser() -> argparse.ArgumentParser:
     list_notes.add_argument("--deck", required=True)
     list_notes.add_argument("--role", required=True)
     list_notes.add_argument("--state", required=True, choices=["new"])
+    list_notes.add_argument("--offset", type=int, default=0)
+    list_notes.add_argument("--limit", type=int, default=LIST_NOTES_DEFAULT_LIMIT)
     list_notes.set_defaults(func=cmd_list_notes)
     edit_note = subparsers.add_parser("edit-note")
     edit_note.add_argument("--note-id", required=True, type=int)

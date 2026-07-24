@@ -61,8 +61,9 @@ class Handler(BaseHTTPRequestHandler):
         101: "Español", 102: "Español", 201: "Español",
         301: "Default", 302: "Default",
         401: "Español", 402: "Español", 403: "Español", 404: "Español",
+        405: "Español", 406: "Español",
     }
-    card_notes = {101: 7001, 102: 7002, 201: 7003, 401: 7004, 402: 7004, 403: 7005, 404: 7005}
+    card_notes = {101: 7001, 102: 7002, 201: 7003, 401: 7004, 402: 7004, 403: 7005, 404: 7005, 405: 7006, 406: 7006}
     note_cards = {}
     next_note_id = 123456789
     next_card_id = 301
@@ -100,6 +101,13 @@ class Handler(BaseHTTPRequestHandler):
             "fields": {
                 "Front": {"value": "hablas"},
                 "Back": {"value": "ты говоришь"},
+            },
+            "tags": ["deck:verbos"],
+        },
+        7006: {
+            "fields": {
+                "Front": {"value": "canto"},
+                "Back": {"value": "я пою"},
             },
             "tags": ["deck:verbos"],
         }
@@ -246,9 +254,10 @@ class Handler(BaseHTTPRequestHandler):
                 if query != 'deck:"Español" is:new tag:deck:verbos':
                     response["error"] = f"unexpected structured new-card query: {query}"
                 else:
-                    # 7004 is fully new. 7005 has one matching new card and
-                    # one non-new card, so the helper must report it separately.
-                    response["result"] = [401, 402, 403]
+                    # 7004 and 7006 are fully new. 7005 has one matching new
+                    # card and one non-new card, so the helper must report it
+                    # separately.
+                    response["result"] = [401, 402, 403, 405, 406]
             elif "Vacía" in query:
                 response["result"] = []
             elif "adjetivos" in query:
@@ -533,11 +542,24 @@ grep -F "result: found" "$TMP_DIR/search.txt" >/dev/null
   > "$TMP_DIR/list-new-verbos.txt"
 grep -F "LIST NOTES" "$TMP_DIR/list-new-verbos.txt" >/dev/null
 grep -F "role_tag: deck:verbos" "$TMP_DIR/list-new-verbos.txt" >/dev/null
-grep -F "matching_cards: 3" "$TMP_DIR/list-new-verbos.txt" >/dev/null
-grep -F "notes: 1" "$TMP_DIR/list-new-verbos.txt" >/dev/null
+grep -F "matching_cards: 5" "$TMP_DIR/list-new-verbos.txt" >/dev/null
+grep -F "matching_notes: 2" "$TMP_DIR/list-new-verbos.txt" >/dev/null
+grep -F "shown_notes: 2" "$TMP_DIR/list-new-verbos.txt" >/dev/null
+grep -F "remaining_notes: 0" "$TMP_DIR/list-new-verbos.txt" >/dev/null
 grep -F "note_id=7004 hablo -> я говорю" "$TMP_DIR/list-new-verbos.txt" >/dev/null
+grep -F "note_id=7006 canto -> я пою" "$TMP_DIR/list-new-verbos.txt" >/dev/null
 grep -F "excluded_mixed_state_notes: 1" "$TMP_DIR/list-new-verbos.txt" >/dev/null
 grep -F "excluded_note=7005 matching_new_cards=1 total_cards=2" "$TMP_DIR/list-new-verbos.txt" >/dev/null
+
+"$ROOT/bin/anki-tool" list-notes --deck Español --role verbos --state new --limit 1 \
+  > "$TMP_DIR/list-new-verbos-page-1.txt"
+grep -F "shown_notes: 1" "$TMP_DIR/list-new-verbos-page-1.txt" >/dev/null
+grep -F "remaining_notes: 1" "$TMP_DIR/list-new-verbos-page-1.txt" >/dev/null
+grep -F "next_offset: 1" "$TMP_DIR/list-new-verbos-page-1.txt" >/dev/null
+"$ROOT/bin/anki-tool" list-notes --deck Español --role verbos --state new --offset 1 --limit 1 \
+  > "$TMP_DIR/list-new-verbos-page-2.txt"
+grep -F "[2] note_id=7006 canto -> я пою" "$TMP_DIR/list-new-verbos-page-2.txt" >/dev/null
+grep -F "remaining_notes: 0" "$TMP_DIR/list-new-verbos-page-2.txt" >/dev/null
 
 "$ROOT/bin/anki-tool" add-basic \
   --deck Español \

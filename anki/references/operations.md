@@ -41,10 +41,12 @@ To inspect unstarted notes for one reviewed role, use the structured lookup:
 ```
 
 It constructs the fixed Anki filter itself, returns only notes whose generated
-cards are all new, and reports mixed-state notes separately. It is read-only;
-classifying a returned form as regular or irregular remains a conversational
-decision. Never delete a candidate without the usual note-deletion dry run and
-later explicit confirmation.
+cards are all new, and reports mixed-state notes separately. Results are
+paginated: it shows 20 notes by default and prints `next_offset` when more
+remain. Use `--offset <next_offset>` (and at most `--limit 50`) for another
+page. It is read-only; classifying a returned form as regular or irregular
+remains a conversational decision. Never delete a candidate without the usual
+note-deletion dry run and later explicit confirmation.
 
 ```bash
 /home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool sync
