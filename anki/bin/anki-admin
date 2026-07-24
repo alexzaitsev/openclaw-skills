@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""SSH-only entry point for Anki imports and legacy deck migrations."""
+
+from __future__ import annotations
+
+import runpy
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+TOOL = runpy.run_path(str(ROOT / "bin" / "anki-tool"))
+
+
+def main() -> int:
+    parser = TOOL["build_admin_parser"]()
+    args = parser.parse_args()
+    if getattr(args, "dry_run", False) and getattr(args, "execute", False):
+        raise TOOL["UserFacingError"]("Use either --dry-run or --execute, not both.")
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (TOOL["AnkiConnectError"], TOOL["UserFacingError"], TOOL["NoteFieldError"]) as exc:
+        raise SystemExit(f"Error: {exc}") from None

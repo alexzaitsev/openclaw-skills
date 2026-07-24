@@ -21,9 +21,9 @@ the exact deck name, card/note counts, emptiness, and non-empty warning.
 
 ## Standard non-addition changes
 
-For `create-deck`, `delete-deck`, `edit-note`, `edit-batch`, `tag-decks`,
-`move-note`, `import-json`, and `merge-decks`, send `✅ Да` and `❌ Нет` with
-callbacks `anki:confirm:yes` and `anki:confirm:no`.
+For `create-deck`, `delete-deck`, `edit-note`, `edit-batch`, and `move-note`,
+send `✅ Да` and `❌ Нет` with callbacks `anki:confirm:yes` and
+`anki:confirm:no`.
 
 ## Spanish card additions with an audio choice
 

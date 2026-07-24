@@ -11,8 +11,6 @@ import json
 import re
 import sys
 import unicodedata
-from html import escape
-from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -21,17 +19,20 @@ sys.path.insert(0, str(ROOT / "lib"))
 
 from anki_connect import AnkiConnectError, invoke  # noqa: E402
 from inbound_media import ImageValidationError, PreparedImage, STAGING_ROOT, validate_image  # noqa: E402
+from note_fields import (  # noqa: E402
+    NoteFieldError,
+    build_note_fields,
+    build_text_updates,
+    contains_media,
+    plain_text,
+    read_note_content,
+)
 
 
 DEFAULT_MODEL = "Basic (type in the answer + reverse)"
 SPANISH_TTS_MODEL = "Basic (type in the answer + reverse + Spanish TTS)"
 SUPPORTED_CARD_MODELS = (DEFAULT_MODEL, SPANISH_TTS_MODEL)
 DEFAULT_SOURCE = ROOT / "import-cards" / "cards.json"
-CONTEXT_SUFFIX = re.compile(
-    r'<br><div class="context">Контекст:\s*(.*?)</div>\s*$',
-    re.DOTALL,
-)
-
 COMMAND_CAPABILITIES = [
     {"name": "ping", "mutates": False, "dry_run": False, "fields": []},
     {"name": "decks", "mutates": False, "dry_run": False, "fields": []},
@@ -47,10 +48,7 @@ COMMAND_CAPABILITIES = [
     {"name": "add-batch", "mutates": True, "dry_run": True, "fields": ["LanguageDeck", "StudyRole", "Front", "Back", "Context", "model extras"]},
     {"name": "edit-note", "mutates": True, "dry_run": True, "fields": ["Front", "Back", "Context", "tags"]},
     {"name": "edit-batch", "mutates": True, "dry_run": True, "fields": ["Back", "Context", "tags"]},
-    {"name": "tag-decks", "mutates": True, "dry_run": True, "fields": ["tags"]},
     {"name": "move-note", "mutates": True, "dry_run": True, "fields": []},
-    {"name": "import-json", "mutates": True, "dry_run": True, "fields": ["LanguageDeck", "StudyRole", "Front", "Back", "Context", "model extras"]},
-    {"name": "merge-decks", "mutates": True, "dry_run": True, "fields": ["tags"]},
 ]
 
 
@@ -58,59 +56,8 @@ class UserFacingError(Exception):
     pass
 
 
-class _TextExtractor(HTMLParser):
-    """Convert Anki's HTML field values to comparable display text."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.parts: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        self.parts.append(data)
-
-
-def plain_text(value: object) -> str:
-    parser = _TextExtractor()
-    parser.feed(str(value))
-    parser.close()
-    return " ".join("".join(parser.parts).split())
-
-
 def quote_search_value(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
-
-
-def html_front(front: str, image_name: str | None = None) -> str:
-    if not image_name:
-        return escape(front)
-    return f'{escape(front)}<br><img alt="{escape(front)}" src="{escape(image_name)}">'
-
-
-def html_back(back: str, context: str | None = None) -> str:
-    parts = [escape(back)]
-    if context:
-        parts.append(
-            '<br><div class="context">'
-            f'Контекст: {escape(context)}</div>'
-        )
-    return "".join(parts)
-
-
-def contains_media(value: object) -> bool:
-    return bool(
-        re.search(
-            r"(?:<(?:img|audio|video)\b|\[sound:)", str(value), re.IGNORECASE
-        )
-    )
-
-
-def split_back(value: object) -> tuple[str, str | None]:
-    """Extract the text and optional context from this skill's Back format."""
-    raw = str(value)
-    match = CONTEXT_SUFFIX.search(raw)
-    if not match:
-        return plain_text(raw), None
-    return plain_text(raw[:match.start()]), plain_text(match.group(1))
 
 
 def invoke_decks() -> list[str]:
@@ -318,12 +265,14 @@ def build_note(
             + "."
         )
 
-    fields = {name: "" for name in active_fields}
-    fields["Front"] = html_front(front, image_name)
-    fields["Back"] = html_back(back, None if "Context" in fields else context)
-    if "Context" in fields:
-        fields["Context"] = escape(context or "")
-    fields.update({name: escape(value) for name, value in supplied_fields.items()})
+    fields = build_note_fields(
+        front,
+        back,
+        context,
+        active_fields,
+        supplied_fields,
+        image_name,
+    )
     return {
         "deckName": deck,
         "modelName": model,
@@ -405,6 +354,26 @@ def format_tags(tags: list[str]) -> str:
     return " ".join(tags) if tags else "<none>"
 
 
+def reviewed_plan_id(payload: object) -> str:
+    """Return the stable short identifier for one fully re-evaluated plan."""
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def require_reviewed_plan(execute: bool, supplied: str, actual: str, operation: str) -> None:
+    if not execute:
+        return
+    if not supplied:
+        raise UserFacingError(f"--execute requires the plan_id from the reviewed {operation} dry run.")
+    if supplied != actual:
+        raise UserFacingError(
+            f"{operation.capitalize()} plan is stale or differs from the reviewed dry run; "
+            "run a new dry run."
+        )
+
+
 def cards_for_note(note_id: int) -> list[int]:
     cards = invoke("findCards", query=f"nid:{note_id}")
     if not isinstance(cards, list) or not cards:
@@ -431,6 +400,76 @@ def place_note_cards(note_id: int, deck: str) -> list[int]:
             f"Could not place every card from note {note_id} in deck {deck}."
         )
     return card_ids
+
+
+def verify_created_note(note_id: int, plan: dict[str, Any]) -> None:
+    """Verify the reviewed text and tags after creating one note."""
+    note = note_info(note_id)
+    content = read_note_content(note, note_id)
+    if (
+        content["front"] != plan["front"]
+        or content["back"] != plan["back"]
+        or content["context"] != plan["context"]
+        or not same_tag_set(note_tags(note, note_id), plan["tags"])
+    ):
+        raise UserFacingError(f"Created note {note_id}, but content or tag verification failed.")
+
+
+def reconcile_created_notes(note_ids: list[int]) -> str:
+    """Return bounded, content-free post-failure state for newly created notes."""
+    summaries: list[str] = []
+    for note_id in note_ids[:20]:
+        try:
+            cards = cards_for_note(note_id)
+            decks = sorted(set(card_decks(cards)))
+            summaries.append(
+                f"note {note_id}: cards {','.join(map(str, cards))} in {','.join(decks)}"
+            )
+        except Exception:
+            summaries.append(f"note {note_id}: could not reconcile")
+    if len(note_ids) > 20:
+        summaries.append(f"{len(note_ids) - 20} further notes omitted")
+    return "; ".join(summaries) or "no notes were created"
+
+
+def partial_write_error(operation: str, created_ids: list[int], cause: Exception) -> UserFacingError:
+    """Describe a sequential write failure without pretending it rolled back."""
+    sync_status = "no local note was created, so sync was not requested"
+    if created_ids:
+        try:
+            request_sync(f"Partially completed {operation}")
+            sync_status = "sync: requested for the created notes"
+        except UserFacingError as sync_error:
+            sync_status = f"sync request failed: {sync_error}"
+    return UserFacingError(
+        f"{operation} stopped after creating note ID(s) "
+        f"{', '.join(map(str, created_ids)) or '<none>'}; "
+        f"reconciliation: {reconcile_created_notes(created_ids)}; {sync_status}. "
+        f"Original failure: {cause}"
+    )
+
+
+def partial_merge_error(
+    target: str, card_ids: list[int], target_created: bool, cause: Exception
+) -> UserFacingError:
+    """Report bounded, current card placement after a merge failure."""
+    try:
+        placements = sorted(set(card_decks(card_ids))) if card_ids else []
+        placement_status = ", ".join(placements) if placements else "no source cards"
+    except Exception:
+        placement_status = "could not reconcile source-card placement"
+    sync_status = "no local merge change was confirmed"
+    if target_created or card_ids:
+        try:
+            request_sync(f"Partially completed merge into {target}")
+            sync_status = "sync: requested"
+        except UserFacingError as sync_error:
+            sync_status = f"sync request failed: {sync_error}"
+    return UserFacingError(
+        f"Merge into {target} stopped; target_created={str(target_created).lower()}; "
+        f"current source-card decks: {placement_status}; {sync_status}. "
+        f"Original failure: {cause}"
+    )
 
 
 def request_sync(operation: str) -> None:
@@ -718,9 +757,9 @@ def cmd_search(args: argparse.Namespace) -> int:
     print(f"query: {query}")
     print(f"matches: {len(ids)}")
     for index, (note_id, note) in enumerate(zip(ids, notes), 1):
-        front = plain_text(note_field_value(note, "Front", note_id))
-        back, context = split_back(note_field_value(note, "Back", note_id))
-        print(f"[{index}] note_id={note_id} {front} -> {back}")
+        content = read_note_content(note, note_id)
+        print(f"[{index}] note_id={note_id} {content['front']} -> {content['back']}")
+        context = content["context"]
         if context:
             print(f"[{index}] context: {context}")
     print("result: found" if ids else "result: none")
@@ -747,8 +786,10 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
     note = note_info(note_id)
     current_front_html = note_field_value(note, "Front", note_id)
     current_back_html = note_field_value(note, "Back", note_id)
-    current_front = plain_text(current_front_html)
-    current_back, current_context = split_back(current_back_html)
+    content = read_note_content(note, note_id)
+    current_front = str(content["front"])
+    current_back = str(content["back"])
+    current_context = content["context"]
     current_tags = note_tags(note, note_id)
     requested_add_tags = normalize_tags(args.add_tag)
     requested_remove_tags = normalize_tags(args.remove_tag)
@@ -777,11 +818,36 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
             f"Note {note_id} has media in Back; text/context editing it is not supported yet."
         )
 
-    updates: dict[str, str] = {}
-    if args.front is not None:
-        updates["Front"] = html_front(proposed_front)
-    if args.back is not None or args.context is not None or args.clear_context:
-        updates["Back"] = html_back(proposed_back, proposed_context)
+    updates = build_text_updates(
+        content,
+        front=proposed_front,
+        back=proposed_back,
+        context=proposed_context,
+        change_front=args.front is not None,
+        change_back_or_context=(
+            args.back is not None or args.context is not None or args.clear_context
+        ),
+    )
+    plan_id = reviewed_plan_id(
+        {
+            "action": "edit-note",
+            "note_id": note_id,
+            "current": {
+                "front": current_front,
+                "back": current_back,
+                "context": current_context,
+                "tags": current_tags,
+            },
+            "proposed": {
+                "front": proposed_front,
+                "back": proposed_back,
+                "context": proposed_context,
+                "tags": proposed_tags,
+                "updates": updates,
+            },
+        }
+    )
+    require_reviewed_plan(args.execute, args.plan_id, plan_id, "edit-note")
 
     print("EXECUTE edit-note" if args.execute else "DRY RUN edit-note")
     print(f"note_id: {note_id}")
@@ -796,6 +862,7 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
     print(f"add_tags: {format_tags(add_tags)}")
     print(f"remove_tags: {format_tags(remove_tags)}")
     print(f"proposed_tags: {format_tags(proposed_tags)}")
+    print(f"plan_id: {plan_id}")
     if not args.execute:
         print("result: dry run only")
         return 0
@@ -810,8 +877,10 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
     if remove_tags:
         invoke("removeTags", notes=[note_id], tags=" ".join(remove_tags))
     verified = note_info(note_id)
-    verified_front = plain_text(note_field_value(verified, "Front", note_id))
-    verified_back, verified_context = split_back(note_field_value(verified, "Back", note_id))
+    verified_content = read_note_content(verified, note_id)
+    verified_front = str(verified_content["front"])
+    verified_back = str(verified_content["back"])
+    verified_context = verified_content["context"]
     verified_tags = note_tags(verified, note_id)
     if (
         verified_front != proposed_front
@@ -884,8 +953,10 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         note = note_info(note_id)
         current_front_html = note_field_value(note, "Front", note_id)
         current_back_html = note_field_value(note, "Back", note_id)
-        current_front = plain_text(current_front_html)
-        current_back, current_context = split_back(current_back_html)
+        content = read_note_content(note, note_id)
+        current_front = str(content["front"])
+        current_back = str(content["back"])
+        current_context = content["context"]
         current_tags = note_tags(note, note_id)
         requested_add_tags = normalize_tags(
             global_add_tags + per_note_add_tags.get(note_id, [])
@@ -905,9 +976,16 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
                 f"Note {note_id} has media in Back; text/context editing it is not supported yet."
             )
 
-        updates: dict[str, str] = {}
-        if proposed_back != current_back or proposed_context != current_context:
-            updates["Back"] = html_back(proposed_back, proposed_context)
+        updates = build_text_updates(
+            content,
+            front=current_front,
+            back=proposed_back,
+            context=proposed_context,
+            change_front=False,
+            change_back_or_context=(
+                proposed_back != current_back or proposed_context != current_context
+            ),
+        )
         plans.append(
             {
                 "note_id": note_id,
@@ -1000,9 +1078,9 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         if plan["remove_tags"]:
             invoke("removeTags", notes=[note_id], tags=" ".join(plan["remove_tags"]))
         verified = note_info(note_id)
-        verified_back, verified_context = split_back(
-            note_field_value(verified, "Back", note_id)
-        )
+        verified_content = read_note_content(verified, note_id)
+        verified_back = str(verified_content["back"])
+        verified_context = verified_content["context"]
         if (
             verified_back != plan["proposed_back"]
             or verified_context != plan["proposed_context"]
@@ -1163,6 +1241,19 @@ def cmd_add_basic(args: argparse.Namespace) -> int:
         deck, front, back, context, tags, dry_run_image, model_fields, extra_fields, model
     )
     addable = can_add(note)
+    plan_id = reviewed_plan_id(
+        {
+            "action": "add-basic",
+            "deck": deck,
+            "role": role,
+            "model": model,
+            "model_fields": model_fields,
+            "note": note,
+            "can_add": addable,
+            "image_sha256": image.sha256 if image else None,
+        }
+    )
+    require_reviewed_plan(args.execute, args.plan_id, plan_id, "add-basic")
 
     mode = "EXECUTE" if args.execute else "DRY RUN"
     print(f"{mode} add-basic")
@@ -1180,6 +1271,7 @@ def cmd_add_basic(args: argparse.Namespace) -> int:
         print(f"image_sha256: {image.sha256}")
         print("image_placement: Front")
     print(f"can_add: {str(addable).lower()}")
+    print(f"plan_id: {plan_id}")
 
     if not addable:
         print("result: skipped duplicate/non-addable note")
@@ -1215,6 +1307,10 @@ def cmd_add_basic(args: argparse.Namespace) -> int:
         ) from exc
     if image:
         verify_note_image(note_id, image)
+    verify_created_note(
+        note_id,
+        {"front": front, "back": back, "context": context, "tags": tags},
+    )
     print(f"result: created note {note_id}")
     print(f"cards: {' '.join(str(card_id) for card_id in card_ids)}")
     print(f"verified_deck: {deck}")
@@ -1291,6 +1387,16 @@ def cmd_add_batch(args: argparse.Namespace) -> int:
     addable = invoke("canAddNotes", notes=[plan["note"] for plan in plans])
     if not isinstance(addable, list) or len(addable) != len(plans):
         raise UserFacingError("AnkiConnect returned invalid duplicate check data.")
+    plan_id = reviewed_plan_id(
+        {
+            "action": "add-batch",
+            "model": model,
+            "model_fields": model_fields,
+            "notes": [plan["note"] for plan in plans],
+            "can_add": [bool(item) for item in addable],
+        }
+    )
+    require_reviewed_plan(args.execute, args.plan_id, plan_id, "add-batch")
 
     print("EXECUTE add-batch" if args.execute else "DRY RUN add-batch")
     print(f"model: {model}")
@@ -1304,6 +1410,7 @@ def cmd_add_batch(args: argparse.Namespace) -> int:
         print(f"[{index}] context: {plan['context'] or '<none>'}")
         print(f"[{index}] tags: {' '.join(plan['tags'])}")
         print_extra_fields(f"[{index}] ", model_fields, plan["extra_fields"])
+    print(f"plan_id: {plan_id}")
 
     if not args.execute:
         print("result: dry run only")
@@ -1311,24 +1418,22 @@ def cmd_add_batch(args: argparse.Namespace) -> int:
 
     created_ids: list[int] = []
     skipped = 0
-    for index, (plan, can_add_item) in enumerate(zip(plans, addable), 1):
-        if not can_add_item:
-            skipped += 1
-            continue
-        note_id = int(invoke("addNote", note=plan["note"]))
-        created_ids.append(note_id)
-        try:
+    try:
+        for index, (plan, can_add_item) in enumerate(zip(plans, addable), 1):
+            if not can_add_item:
+                skipped += 1
+                continue
+            note_id = int(invoke("addNote", note=plan["note"]))
+            created_ids.append(note_id)
             card_ids = place_note_cards(note_id, plan["deck"])
-        except UserFacingError as exc:
-            raise UserFacingError(
-                f"Created batch note(s) {created_ids}, but placement failed "
-                f"for item #{index}: {exc}"
-            ) from exc
-        print(
-            f"[{index}] created_note={note_id} "
-            f"cards={' '.join(str(card_id) for card_id in card_ids)} "
-            f"verified_deck={plan['deck']}"
-        )
+            verify_created_note(note_id, plan)
+            print(
+                f"[{index}] created_note={note_id} "
+                f"cards={' '.join(str(card_id) for card_id in card_ids)} "
+                f"verified_deck={plan['deck']}"
+            )
+    except Exception as exc:
+        raise partial_write_error("batch addition", created_ids, exc) from exc
 
     print(f"result: created={len(created_ids)} skipped={skipped}")
     if created_ids:
@@ -1346,12 +1451,23 @@ def cmd_move_note(args: argparse.Namespace) -> int:
     require_decks([target])
     card_ids = cards_for_note(note_id)
     current_decks = sorted(set(card_decks(card_ids)))
+    plan_id = reviewed_plan_id(
+        {
+            "action": "move-note",
+            "note_id": note_id,
+            "target": target,
+            "cards": card_ids,
+            "current_decks": current_decks,
+        }
+    )
+    require_reviewed_plan(args.execute, args.plan_id, plan_id, "move-note")
 
     print("EXECUTE move-note" if args.execute else "DRY RUN move-note")
     print(f"note_id: {note_id}")
     print(f"target: {target}")
     print(f"cards: {' '.join(str(card_id) for card_id in card_ids)}")
     print(f"current_decks: {', '.join(current_decks)}")
+    print(f"plan_id: {plan_id}")
 
     if not args.execute:
         print("result: dry run only")
@@ -1397,7 +1513,7 @@ def load_import_source(source: Path) -> list[dict[str, Any]]:
 
 
 def build_import_plans(
-    groups: list[dict[str, Any]], source: Path
+    groups: list[dict[str, Any]], model_fields: list[str]
 ) -> list[dict[str, Any]]:
     plans: list[dict[str, Any]] = []
     for group_index, group in enumerate(groups, 1):
@@ -1420,7 +1536,15 @@ def build_import_plans(
                 )
             dry_image = None
             tags = new_note_tags(group["role"], [])
-            note = build_note(group["deck"], front, back, context, tags, dry_image)
+            note = build_note(
+                group["deck"],
+                front,
+                back,
+                context,
+                tags,
+                dry_image,
+                model_fields,
+            )
             plans.append(
                 {
                     "deck": group["deck"],
@@ -1439,41 +1563,53 @@ def cmd_import_json(args: argparse.Namespace) -> int:
     source = Path(args.source).expanduser()
     groups = load_import_source(source)
     require_decks([group["deck"] for group in groups])
-    plans = build_import_plans(groups, source)
+    model_fields = invoke_model_fields(DEFAULT_MODEL)
+    plans = build_import_plans(groups, model_fields)
 
     addable = invoke("canAddNotes", notes=[plan["note"] for plan in plans])
     if not isinstance(addable, list) or len(addable) != len(plans):
         raise UserFacingError("AnkiConnect returned invalid duplicate check data.")
+    plan_id = reviewed_plan_id(
+        {
+            "action": "import-json",
+            "source": str(source.resolve()),
+            "model_fields": model_fields,
+            "notes": [plan["note"] for plan in plans],
+            "can_add": [bool(item) for item in addable],
+        }
+    )
+    require_reviewed_plan(args.execute, args.plan_id, plan_id, "import-json")
 
     mode = "EXECUTE" if args.execute else "DRY RUN"
     print(f"{mode} import-json")
     print(f"source: {source}")
     print(f"cards: {len(plans)}")
+    print(f"plan_id: {plan_id}")
 
     created = 0
     skipped = 0
-    for index, (plan, can_add_item) in enumerate(zip(plans, addable), 1):
-        status = "OK" if can_add_item else "DUPLICATE/SKIP"
-        print(
-            f"[{index}] {status} {plan['deck']} [{deck_role_tag(plan['role'])}]: "
-            f"{plan['front']} -> {plan['back']}"
-        )
-        print(f"[{index}] tags: {' '.join(plan['tags'])}")
-        if not can_add_item:
-            skipped += 1
-            continue
-        if args.execute:
-            note = build_note(
-                plan["deck"],
-                plan["front"],
-                plan["back"],
-                plan["context"],
-                plan["tags"],
-                None,
+    created_ids: list[int] = []
+    try:
+        for index, (plan, can_add_item) in enumerate(zip(plans, addable), 1):
+            status = "OK" if can_add_item else "DUPLICATE/SKIP"
+            print(
+                f"[{index}] {status} {plan['deck']} [{deck_role_tag(plan['role'])}]: "
+                f"{plan['front']} -> {plan['back']}"
             )
-            note_id = int(invoke("addNote", note=note))
-            place_note_cards(note_id, plan["deck"])
-            created += 1
+            print(f"[{index}] tags: {' '.join(plan['tags'])}")
+            if not can_add_item:
+                skipped += 1
+                continue
+            if args.execute:
+                note_id = int(invoke("addNote", note=plan["note"]))
+                created_ids.append(note_id)
+                place_note_cards(note_id, plan["deck"])
+                verify_created_note(note_id, plan)
+                created += 1
+    except Exception as exc:
+        if args.execute:
+            raise partial_write_error("JSON import", created_ids, exc) from exc
+        raise
 
     if args.execute:
         print(f"result: created={created} skipped={skipped}")
@@ -1496,12 +1632,8 @@ def cmd_merge_decks(args: argparse.Namespace) -> int:
     decks = require_decks(sources)
     target_exists = target in decks
 
-    print("EXECUTE merge-decks" if args.execute else "DRY RUN merge-decks")
-    print(f"target: {target}")
-    if not target_exists:
-        print("target_status: would create")
-
     all_cards: list[int] = []
+    source_cards: dict[str, list[int]] = {}
     source_notes: dict[str, list[int]] = {}
 
     for source in sources:
@@ -1510,6 +1642,7 @@ def cmd_merge_decks(args: argparse.Namespace) -> int:
             raise UserFacingError(f"Invalid card list for deck {source}.")
         card_ids = [int(card) for card in cards]
         all_cards.extend(card_ids)
+        source_cards[source] = card_ids
 
         notes: set[int] = set()
         if card_ids:
@@ -1521,27 +1654,67 @@ def cmd_merge_decks(args: argparse.Namespace) -> int:
                 if note_id is not None:
                     notes.add(int(note_id))
         source_notes[source] = sorted(notes)
-        print(f"source: {source} cards={len(card_ids)} notes={len(notes)}")
+    plan_id = reviewed_plan_id(
+        {
+            "action": "merge-decks",
+            "sources": sources,
+            "target": target,
+            "target_exists": target_exists,
+            "tag_original_deck": args.tag_original_deck,
+            "source_cards": source_cards,
+            "source_notes": source_notes,
+        }
+    )
+    require_reviewed_plan(args.execute, args.plan_id, plan_id, "merge-decks")
+
+    print("EXECUTE merge-decks" if args.execute else "DRY RUN merge-decks")
+    print(f"target: {target}")
+    if not target_exists:
+        print("target_status: would create")
+    for source in sources:
+        print(
+            f"source: {source} cards={len(source_cards[source])} "
+            f"notes={len(source_notes[source])}"
+        )
+    print(f"plan_id: {plan_id}")
 
     if not args.execute:
         print(f"result: dry run only total_cards={len(all_cards)}")
         return 0
 
-    if not target_exists:
-        invoke("createDeck", deck=target)
+    target_created = False
+    try:
+        if not target_exists:
+            invoke("createDeck", deck=target)
+            require_decks([target])
+            target_created = True
 
-    if args.tag_original_deck:
-        for source, note_ids in source_notes.items():
-            if note_ids:
-                invoke("addTags", notes=note_ids, tags=original_deck_tag(source))
+        if args.tag_original_deck:
+            for source, note_ids in source_notes.items():
+                if note_ids:
+                    tag = original_deck_tag(source)
+                    invoke("addTags", notes=note_ids, tags=tag)
+                    verified = invoke("notesInfo", notes=note_ids)
+                    if not isinstance(verified, list) or len(verified) != len(note_ids):
+                        raise UserFacingError(f"Could not verify source tags for {source}.")
+                    for note_id, note in zip(note_ids, verified):
+                        if tag_key(tag) not in {tag_key(item) for item in note_tags(note, note_id)}:
+                            raise UserFacingError(
+                                f"Added source tag to note {note_id}, but verification failed."
+                            )
 
-    if all_cards:
-        invoke("changeDeck", cards=all_cards, deck=target)
+        if all_cards:
+            invoke("changeDeck", cards=all_cards, deck=target)
+            actual_decks = card_decks(all_cards)
+            if any(actual_deck != target for actual_deck in actual_decks):
+                raise UserFacingError(f"Could not place every merged card in deck {target}.")
 
-    print(f"result: moved_cards={len(all_cards)}")
-    if not target_exists or all_cards:
-        request_sync(f"Merged decks into {target}")
-        print("sync: requested")
+        print(f"result: moved_cards={len(all_cards)}")
+        if target_created or all_cards:
+            request_sync(f"Merged decks into {target}")
+            print("sync: requested")
+    except Exception as exc:
+        raise partial_merge_error(target, all_cards, target_created, exc) from exc
     return 0
 
 
@@ -1591,6 +1764,7 @@ def build_parser() -> argparse.ArgumentParser:
     edit_note.add_argument("--clear-context", action="store_true")
     edit_note.add_argument("--add-tag", action="append", default=[])
     edit_note.add_argument("--remove-tag", action="append", default=[])
+    edit_note.add_argument("--plan-id", default="")
     edit_note.add_argument("--execute", action="store_true")
     edit_note.add_argument("--dry-run", action="store_true")
     edit_note.set_defaults(func=cmd_edit_note)
@@ -1614,13 +1788,6 @@ def build_parser() -> argparse.ArgumentParser:
     edit_batch.add_argument("--execute", action="store_true")
     edit_batch.add_argument("--dry-run", action="store_true")
     edit_batch.set_defaults(func=cmd_edit_batch)
-    tag_decks = subparsers.add_parser("tag-decks")
-    tag_decks.add_argument("--deck", action="append", default=[])
-    tag_decks.add_argument("--all", action="store_true")
-    tag_decks.add_argument("--plan-id", default="")
-    tag_decks.add_argument("--execute", action="store_true")
-    tag_decks.add_argument("--dry-run", action="store_true")
-    tag_decks.set_defaults(func=cmd_tag_decks)
     subparsers.add_parser("sync").set_defaults(func=cmd_sync)
 
     add_basic = subparsers.add_parser("add-basic")
@@ -1636,6 +1803,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_basic.add_argument("--tag", action="append", default=[])
     add_basic.add_argument("--image", default="")
     add_basic.add_argument("--image-sha256", default="")
+    add_basic.add_argument("--plan-id", default="")
     add_basic.add_argument("--execute", action="store_true")
     add_basic.add_argument("--dry-run", action="store_true")
     add_basic.set_defaults(func=cmd_add_basic)
@@ -1657,6 +1825,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
     )
     add_batch.add_argument("--tag", action="append", default=[])
+    add_batch.add_argument("--plan-id", default="")
     add_batch.add_argument("--execute", action="store_true")
     add_batch.add_argument("--dry-run", action="store_true")
     add_batch.set_defaults(func=cmd_add_batch)
@@ -1664,12 +1833,30 @@ def build_parser() -> argparse.ArgumentParser:
     move_note = subparsers.add_parser("move-note")
     move_note.add_argument("--note-id", required=True, type=int)
     move_note.add_argument("--target", required=True)
+    move_note.add_argument("--plan-id", default="")
     move_note.add_argument("--execute", action="store_true")
     move_note.add_argument("--dry-run", action="store_true")
     move_note.set_defaults(func=cmd_move_note)
 
+    return parser
+
+
+def build_admin_parser() -> argparse.ArgumentParser:
+    """Build the SSH-only parser for legacy migrations and file imports."""
+    parser = argparse.ArgumentParser(description="Administer Anki via AnkiConnect.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    tag_decks = subparsers.add_parser("tag-decks")
+    tag_decks.add_argument("--deck", action="append", default=[])
+    tag_decks.add_argument("--all", action="store_true")
+    tag_decks.add_argument("--plan-id", default="")
+    tag_decks.add_argument("--execute", action="store_true")
+    tag_decks.add_argument("--dry-run", action="store_true")
+    tag_decks.set_defaults(func=cmd_tag_decks)
+
     import_json = subparsers.add_parser("import-json")
     import_json.add_argument("--source", default=str(DEFAULT_SOURCE))
+    import_json.add_argument("--plan-id", default="")
     import_json.add_argument("--execute", action="store_true")
     import_json.add_argument("--dry-run", action="store_true")
     import_json.set_defaults(func=cmd_import_json)
@@ -1678,10 +1865,10 @@ def build_parser() -> argparse.ArgumentParser:
     merge.add_argument("--source", action="append", required=True)
     merge.add_argument("--target", required=True)
     merge.add_argument("--tag-original-deck", action="store_true")
+    merge.add_argument("--plan-id", default="")
     merge.add_argument("--execute", action="store_true")
     merge.add_argument("--dry-run", action="store_true")
     merge.set_defaults(func=cmd_merge_decks)
-
     return parser
 
 
@@ -1696,5 +1883,5 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (AnkiConnectError, UserFacingError) as exc:
+    except (AnkiConnectError, NoteFieldError, UserFacingError) as exc:
         raise SystemExit(f"Error: {exc}") from None

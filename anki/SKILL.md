@@ -218,11 +218,11 @@ Add a basic Spanish note:
 Every newly created note automatically receives the study-role tag derived
 from `--role` (for example, `--role general` adds `deck:general`). This is in
 addition to any requested tag such as `source:telegram`; do not also supply the
-role tag with `--tag`. The same invariant applies to `add-batch` and
-`import-json`. No tag is derived from the physical language deck.
+role tag with `--tag`. The same invariant applies to `add-batch`. No tag is
+derived from the physical language deck.
 
-The command is a dry run by default. Add `--execute` only after reviewing the
-printed plan.
+The command is a dry run by default and prints `plan_id`. Add `--execute
+--plan-id <reviewed-plan-id>` only after reviewing the printed plan.
 
 ### Attach one inbound image to a new card
 
@@ -248,7 +248,7 @@ inline approval, execute the unchanged command with both `--execute` and the
 exact dry-run digest:
 
 ```bash
-/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool add-basic --deck Español --role general --front "gato" --back "кот" --image "<staged-path>" --image-sha256 "<reviewed-sha256>" --execute
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool add-basic --deck Español --role general --front "gato" --back "кот" --image "<staged-path>" --image-sha256 "<reviewed-sha256>" --execute --plan-id "<reviewed-plan-id>"
 ```
 
 Never invent, omit, or replace `--image-sha256`. A changed image invalidates
@@ -337,55 +337,16 @@ whenever the same request affects more than one existing note. Never implement
 a batch edit with a shell loop, inline Python, or repeated raw AnkiConnect
 calls.
 
-Legacy migration only: add an old category deck's matching role tag before
-consolidating it, without replacing any current tags:
+## SSH-only administration
 
-```bash
-/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool tag-decks --all
-```
-
-`tag-decks --all` covers every live deck and adds the namespaced tag
-`deck:<deck-name>` (for example, `deck:general`) to each represented note.
-The dry run is an aggregate per-deck summary only: cards, unique notes, tags to
-add, and notes already tagged. It never dumps a full card list. It prints a
-`plan_id`; after Telegram confirmation, rerun it with
-`--execute --plan-id <reviewed-plan-id>`. Existing tags are preserved; only the
-missing legacy role tag is added. This is not a routine command after the
-language-deck migration. Never run it against `Español` or `English`, because
-that would create invalid `deck:Español` or `deck:English` tags. Use it only
-when the operator explicitly requests migration of a remaining legacy category
-deck. Do not implement this workflow with a shell loop or repeated `search`.
-
-Import the existing JSON card format:
-
-```bash
-/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool import-json \
-  --source import-cards/cards.json
-/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool import-json \
-  --source import-cards/cards.json \
-  --execute
-```
-
-Each import group must contain both its physical language `deck` and its
-language-specific study `role`, for example
-`{"deck":"Español","role":"general","cards":[...]}`. The helper adds
-`deck:<role>` to every imported note. JSON imports cannot contain images; use
-the reviewed one-note staged-image flow above instead.
-
-Legacy administrative operation: merge Spanish category decks into the
-Spanish language deck while preserving original deck history tags:
-
-```bash
-/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool merge-decks \
-  --source adjetivos \
-  --source reglas \
-  --source verbos \
-  --target Español \
-  --tag-original-deck
-```
-
-The merge command is also dry-run by default. It must print counts by source
-deck before any execute-mode run.
+`tag-decks`, `import-json`, and `merge-decks` are legacy migration or bulk
+operations. They are available only through `bin/anki-admin` to an SSH
+operator and are not part of the Telegram agent's reviewed executable surface.
+Do not invoke, suggest, or confirm them in Telegram. Each still uses a dry run
+and its exact `--plan-id` before execution. If a sequential import or merge
+fails after a local write, the helper reports the reconciled affected note IDs
+or card placement and requests one sync when possible; it never claims an
+automatic rollback.
 
 ## Statistics notifications
 
@@ -518,11 +479,12 @@ without exception:
 2. Do **not** use `--execute` in that same turn. An OpenClaw exec approval,
    including `allow-once`, authorizes a command invocation only; it is never
    confirmation to add an Anki note.
-3. Use `--execute` only after a later, explicit operator reply confirming the
-   currently displayed plan. For `edit-batch`, rerun the exact command with
-   `--execute --plan-id <reviewed-plan-id>`; if the live note fields or tags
-   changed in the meantime, the helper rejects it as stale and requires a new
-   dry run.
+3. Use `--execute --plan-id <reviewed-plan-id>` only after a later, explicit
+   operator reply confirming the currently displayed plan. Every Telegram-facing
+   mutation except standalone `sync` requires that exact dry-run ID; if the
+   live note, deck, duplicate check, model schema, or staged image changed in
+   the meantime, the helper rejects execution as stale and requires a new dry
+   run.
 4. If the operator replies with an edit, correction, alternative translation,
    deck change, added item, or any other modification, do not execute the old
    plan. Apply the edit, rerun the complete dry run, display the revised plan,
@@ -530,8 +492,7 @@ without exception:
    confirmation of that revised plan.
 
 This applies equally to `create-deck`, `delete-deck`, `add-basic`, `add-batch`,
-`edit-note`, `edit-batch`, `tag-decks`, `move-note`, `import-json`, and
-`merge-decks`. Never
+`edit-note`, `edit-batch`, and `move-note`. Never
 infer confirmation from the original request, an exec approval, or a reply
 that changes the proposed content. Never ask for confirmation before the
 current plan's dry run has completed and been shown to the operator.

@@ -268,17 +268,23 @@ Path(__import__("sys").argv[1]).write_bytes(
 )
 PY
 
-python3 - "$ROOT/bin/anki-tool" <<'PY'
-import runpy
+python3 - "$ROOT" <<'PY'
 import sys
 
-tool = runpy.run_path(sys.argv[1])
-assert tool["html_back"]("ответ", "пояснение") == (
+sys.path.insert(0, f"{sys.argv[1]}/lib")
+from note_fields import html_back, read_note_content
+
+assert html_back("ответ", "пояснение") == (
     'ответ<br><div class="context">Контекст: пояснение</div>'
 )
-assert tool["split_back"](
-    'ответ<br><div class="context">Контекст: пояснение</div>'
-) == ("ответ", "пояснение")
+assert read_note_content(
+    {"fields": {"Front": {"value": "вопрос"}, "Back": {"value": "ответ"}, "Context": {"value": "пояснение"}}},
+    1,
+) == {"front": "вопрос", "back": "ответ", "context": "пояснение", "has_context_field": True}
+assert read_note_content(
+    {"fields": {"Front": {"value": "вопрос"}, "Back": {"value": html_back("ответ", "пояснение")}}},
+    1,
+) == {"front": "вопрос", "back": "ответ", "context": "пояснение", "has_context_field": False}
 PY
 
 "$ROOT/bin/anki-tool" ping > "$TMP_DIR/ping.txt"
@@ -340,7 +346,10 @@ grep -F '"name": "create-deck"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"name": "deck-info"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"name": "delete-deck"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"name": "edit-batch"' "$TMP_DIR/capabilities.json" >/dev/null
-grep -F '"name": "tag-decks"' "$TMP_DIR/capabilities.json" >/dev/null
+if grep -F '"name": "tag-decks"' "$TMP_DIR/capabilities.json" >/dev/null; then
+  echo "expected legacy admin command to be absent from anki-tool" >&2
+  exit 1
+fi
 grep -F '"name": "stage-inbound-image"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"Context"' "$TMP_DIR/capabilities.json" >/dev/null
 
@@ -356,14 +365,19 @@ IMAGE_SHA256="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))
 grep -F "image: image/png 1x1 33 bytes" "$TMP_DIR/add-image-dry.txt" >/dev/null
 grep -F "image_sha256: $IMAGE_SHA256" "$TMP_DIR/add-image-dry.txt" >/dev/null
 grep -F "image_placement: Front" "$TMP_DIR/add-image-dry.txt" >/dev/null
+IMAGE_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/add-image-dry.txt")"
+[[ "$IMAGE_PLAN_ID" =~ ^[0-9a-f]{16}$ ]]
 
-if "$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "без хеша" --back "no hash" --image "$STAGED_IMAGE" --execute > "$TMP_DIR/add-image-no-hash.txt" 2>&1; then
+"$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "без хеша" --back "no hash" --image "$STAGED_IMAGE" \
+  > "$TMP_DIR/add-image-no-hash-dry.txt"
+NO_HASH_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/add-image-no-hash-dry.txt")"
+if "$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "без хеша" --back "no hash" --image "$STAGED_IMAGE" --execute --plan-id "$NO_HASH_PLAN_ID" > "$TMP_DIR/add-image-no-hash.txt" 2>&1; then
   echo "expected image execute without reviewed hash to fail" >&2
   exit 1
 fi
 grep -F -- "--image-sha256 from the reviewed dry run is required" "$TMP_DIR/add-image-no-hash.txt" >/dev/null
 
-"$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "gato" --back "кот" --image "$STAGED_IMAGE" --image-sha256 "$IMAGE_SHA256" --execute \
+"$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "gato" --back "кот" --image "$STAGED_IMAGE" --image-sha256 "$IMAGE_SHA256" --execute --plan-id "$IMAGE_PLAN_ID" \
   > "$TMP_DIR/add-image-execute.txt"
 grep -F "verified_image: anki-img-$IMAGE_SHA256.png" "$TMP_DIR/add-image-execute.txt" >/dev/null
 grep -F "storeMediaFile" "$TMP_DIR/actions.log" >/dev/null
@@ -382,11 +396,11 @@ Path(__import__("sys").argv[1]).write_bytes(
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x02\x00\x00\x00\x01\x08\x02\x00\x00\x00"
 )
 PY
-if "$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "подмена" --back "changed" --image "$STAGED_IMAGE" --image-sha256 "$IMAGE_SHA256" --execute > "$TMP_DIR/add-image-changed.txt" 2>&1; then
+if "$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "gato" --back "кот" --image "$STAGED_IMAGE" --image-sha256 "$IMAGE_SHA256" --execute --plan-id "$IMAGE_PLAN_ID" > "$TMP_DIR/add-image-changed.txt" 2>&1; then
   echo "expected changed staged image to invalidate the plan" >&2
   exit 1
 fi
-grep -F "Image changed after the reviewed dry run" "$TMP_DIR/add-image-changed.txt" >/dev/null
+grep -F "Add-basic plan is stale" "$TMP_DIR/add-image-changed.txt" >/dev/null
 
 printf 'GIF89a' > "$TMP_DIR/inbound/unsupported.gif"
 if "$ROOT/bin/stage-inbound-image" --source "$TMP_DIR/inbound/unsupported.gif" > "$TMP_DIR/stage-gif.txt" 2>&1; then
@@ -449,6 +463,12 @@ grep -F "context: opposite of bajo" "$TMP_DIR/add-dry.txt" >/dev/null
 grep -F "role: general" "$TMP_DIR/add-dry.txt" >/dev/null
 grep -F "tags: source:telegram deck:general" "$TMP_DIR/add-dry.txt" >/dev/null
 grep -F "field Example: El edificio es alto." "$TMP_DIR/add-dry.txt" >/dev/null
+ADD_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/add-dry.txt")"
+if "$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "alto" --back "tall" --context "opposite of bajo" --field Example "El edificio es alto." --tag source:telegram --execute > "$TMP_DIR/add-without-plan.txt" 2>&1; then
+  echo "expected add-basic execution without a plan ID to fail" >&2
+  exit 1
+fi
+grep -F "requires the plan_id" "$TMP_DIR/add-without-plan.txt" >/dev/null
 
 "$ROOT/bin/anki-tool" add-basic \
   --deck Español \
@@ -510,7 +530,11 @@ grep -F "Do not pass deck:* with --tag" "$TMP_DIR/duplicate-role-tag.txt" >/dev/
   --role general \
   --front "alto" \
   --back "tall" \
+  --context "opposite of bajo" \
+  --field Example "El edificio es alto." \
+  --tag source:telegram \
   --execute \
+  --plan-id "$ADD_PLAN_ID" \
   > "$TMP_DIR/add-execute.txt"
 grep -F "result: created note 123456789" "$TMP_DIR/add-execute.txt" >/dev/null
 grep -F "cards: 301 302" "$TMP_DIR/add-execute.txt" >/dev/null
@@ -518,27 +542,39 @@ grep -F "verified_deck: Español" "$TMP_DIR/add-execute.txt" >/dev/null
 grep -F "sync: requested" "$TMP_DIR/add-execute.txt" >/dev/null
 [[ "$(grep -c '^sync$' "$TMP_DIR/actions.log")" -eq 3 ]]
 
+"$ROOT/bin/anki-tool" edit-note --note-id 123456789 --context "new context" \
+  > "$TMP_DIR/edit-context-dry.txt"
+CONTEXT_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-context-dry.txt")"
+"$ROOT/bin/anki-tool" edit-note --note-id 123456789 --context "new context" \
+  --execute --plan-id "$CONTEXT_PLAN_ID" > "$TMP_DIR/edit-context-execute.txt"
+grep -F "verified_context: new context" "$TMP_DIR/edit-context-execute.txt" >/dev/null
+
 "$ROOT/bin/anki-tool" move-note \
   --note-id 123456789 \
   --target English \
   > "$TMP_DIR/move-dry.txt"
 grep -F "DRY RUN move-note" "$TMP_DIR/move-dry.txt" >/dev/null
 grep -F "current_decks: Español" "$TMP_DIR/move-dry.txt" >/dev/null
+MOVE_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/move-dry.txt")"
 
 "$ROOT/bin/anki-tool" move-note \
   --note-id 123456789 \
   --target English \
   --execute \
+  --plan-id "$MOVE_PLAN_ID" \
   > "$TMP_DIR/move-execute.txt"
 grep -F "result: moved_cards=2" "$TMP_DIR/move-execute.txt" >/dev/null
 grep -F "verified_deck: English" "$TMP_DIR/move-execute.txt" >/dev/null
 grep -F "sync: requested" "$TMP_DIR/move-execute.txt" >/dev/null
-[[ "$(grep -c '^sync$' "$TMP_DIR/actions.log")" -eq 4 ]]
+[[ "$(grep -c '^sync$' "$TMP_DIR/actions.log")" -eq 5 ]]
 
 "$ROOT/bin/anki-tool" sync > "$TMP_DIR/sync.txt"
 grep -F "sync: requested" "$TMP_DIR/sync.txt" >/dev/null
-[[ "$(grep -c '^sync$' "$TMP_DIR/actions.log")" -eq 5 ]]
+[[ "$(grep -c '^sync$' "$TMP_DIR/actions.log")" -eq 6 ]]
 
+"$ROOT/bin/anki-tool" add-basic --deck Español --role general --front "fallo" --back "сбой" \
+  > "$TMP_DIR/sync-failure-dry.txt"
+FAIL_SYNC_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/sync-failure-dry.txt")"
 touch "$TMP_DIR/actions.fail-sync"
 if "$ROOT/bin/anki-tool" add-basic \
   --deck Español \
@@ -546,6 +582,7 @@ if "$ROOT/bin/anki-tool" add-basic \
   --front "fallo" \
   --back "сбой" \
   --execute \
+  --plan-id "$FAIL_SYNC_PLAN_ID" \
   > "$TMP_DIR/sync-failure.txt" 2>&1; then
   echo "expected automatic sync failure" >&2
   exit 1
@@ -570,7 +607,8 @@ grep -F "[1] tags: source:telegram deck:general" "$TMP_DIR/batch-dry.txt" >/dev/
 grep -F "[1] field Example: Puedes cambiar los planes." "$TMP_DIR/batch-dry.txt" >/dev/null
 grep -F "[2] OK Español [deck:verbos]: cambiar" "$TMP_DIR/batch-dry.txt" >/dev/null
 grep -F "[2] tags: source:telegram deck:verbos" "$TMP_DIR/batch-dry.txt" >/dev/null
-[[ "$(grep -c '^sync$' "$TMP_DIR/actions.log")" -eq 6 ]]
+BATCH_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/batch-dry.txt")"
+[[ "$(grep -c '^sync$' "$TMP_DIR/actions.log")" -eq 7 ]]
 
 "$ROOT/bin/anki-tool" add-batch \
   --note Español general "¿Puedes cambiar tus planes?" \
@@ -579,12 +617,13 @@ grep -F "[2] tags: source:telegram deck:verbos" "$TMP_DIR/batch-dry.txt" >/dev/n
   --note-field 1 Example "Puedes cambiar los planes." \
   --tag source:telegram \
   --execute \
+  --plan-id "$BATCH_PLAN_ID" \
   > "$TMP_DIR/batch-execute.txt"
 grep -F "EXECUTE add-batch" "$TMP_DIR/batch-execute.txt" >/dev/null
 [[ "$(grep -c 'verified_deck=Español' "$TMP_DIR/batch-execute.txt")" -eq 2 ]]
 grep -F "result: created=2 skipped=0" "$TMP_DIR/batch-execute.txt" >/dev/null
 grep -F "sync: requested" "$TMP_DIR/batch-execute.txt" >/dev/null
-[[ "$(grep -c '^sync$' "$TMP_DIR/actions.log")" -eq 7 ]]
+[[ "$(grep -c '^sync$' "$TMP_DIR/actions.log")" -eq 8 ]]
 
 cat > "$TMP_DIR/cards.json" <<'JSON'
 [
@@ -598,12 +637,23 @@ cat > "$TMP_DIR/cards.json" <<'JSON'
 ]
 JSON
 
-"$ROOT/bin/anki-tool" import-json --source "$TMP_DIR/cards.json" > "$TMP_DIR/import.txt"
+"$ROOT/bin/anki-admin" import-json --source "$TMP_DIR/cards.json" > "$TMP_DIR/import.txt"
 grep -F "DRY RUN import-json" "$TMP_DIR/import.txt" >/dev/null
 grep -F "cards: 1" "$TMP_DIR/import.txt" >/dev/null
 grep -F "[1] tags: deck:general" "$TMP_DIR/import.txt" >/dev/null
+IMPORT_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/import.txt")"
+"$ROOT/bin/anki-admin" import-json --source "$TMP_DIR/cards.json" --execute \
+  --plan-id "$IMPORT_PLAN_ID" > "$TMP_DIR/import-execute.txt"
+grep -F "result: created=1 skipped=0" "$TMP_DIR/import-execute.txt" >/dev/null
 
-"$ROOT/bin/anki-tool" merge-decks \
+if "$ROOT/bin/anki-tool" import-json --source "$TMP_DIR/cards.json" \
+  > "$TMP_DIR/import-through-agent-tool.txt" 2>&1; then
+  echo "expected import-json to be unavailable through anki-tool" >&2
+  exit 1
+fi
+grep -F "invalid choice" "$TMP_DIR/import-through-agent-tool.txt" >/dev/null
+
+"$ROOT/bin/anki-admin" merge-decks \
   --source adjetivos \
   --source verbos \
   --target Español \
@@ -615,6 +665,8 @@ grep -F "source: verbos cards=1 notes=1" "$TMP_DIR/merge.txt" >/dev/null
 
 "$ROOT/bin/anki-tool" edit-note \
   --note-id 7001 \
+  --front "decir (hablar)" \
+  --back "говорить; сказать" \
   --context "англ. say" \
   --add-tag source:telegram \
   --add-tag grammar::verbs \
@@ -629,6 +681,7 @@ grep -F "add_tags: source:telegram grammar::verbs deck:números" "$TMP_DIR/edit-
 grep -F "remove_tags: review-later" "$TMP_DIR/edit-dry.txt" >/dev/null
 grep -F "proposed_tags: source:old source:telegram grammar::verbs deck:números" "$TMP_DIR/edit-dry.txt" >/dev/null
 grep -F "result: dry run only" "$TMP_DIR/edit-dry.txt" >/dev/null
+EDIT_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-dry.txt")"
 
 "$ROOT/bin/anki-tool" edit-note \
   --note-id 7001 \
@@ -640,6 +693,7 @@ grep -F "result: dry run only" "$TMP_DIR/edit-dry.txt" >/dev/null
   --add-tag deck:números \
   --remove-tag review-later \
   --execute \
+  --plan-id "$EDIT_PLAN_ID" \
   > "$TMP_DIR/edit-execute.txt"
 grep -F "result: updated note 7001" "$TMP_DIR/edit-execute.txt" >/dev/null
 grep -F "verified_front: decir (hablar)" "$TMP_DIR/edit-execute.txt" >/dev/null
@@ -671,7 +725,10 @@ grep -F "result: dry run only" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-batch-dry.txt")"
 [[ "$PLAN_ID" =~ ^[0-9a-f]{16}$ ]]
 
-"$ROOT/bin/anki-tool" edit-note --note-id 7001 --add-tag changed-after-plan --execute \
+"$ROOT/bin/anki-tool" edit-note --note-id 7001 --add-tag changed-after-plan \
+  > "$TMP_DIR/edit-batch-drift-dry.txt"
+DRIFT_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-batch-drift-dry.txt")"
+"$ROOT/bin/anki-tool" edit-note --note-id 7001 --add-tag changed-after-plan --execute --plan-id "$DRIFT_PLAN_ID" \
   > "$TMP_DIR/edit-batch-drift.txt"
 if "$ROOT/bin/anki-tool" edit-batch \
   --note 7001 "=" "англ. hablar" \
@@ -723,7 +780,7 @@ if "$ROOT/bin/anki-tool" edit-note \
 fi
 grep -F "has media in Front" "$TMP_DIR/edit-media.txt" >/dev/null
 
-"$ROOT/bin/anki-tool" tag-decks --deck adjetivos --deck verbos \
+"$ROOT/bin/anki-admin" tag-decks --deck adjetivos --deck verbos \
   > "$TMP_DIR/tag-decks-dry.txt"
 grep -F "DRY RUN tag-decks" "$TMP_DIR/tag-decks-dry.txt" >/dev/null
 grep -F "deck: adjetivos tag: deck:adjetivos cards: 2 notes: 2 add_tag: 2 already_tagged: 0" \
@@ -734,13 +791,13 @@ grep -F "total_add_tag: 3" "$TMP_DIR/tag-decks-dry.txt" >/dev/null
 TAG_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/tag-decks-dry.txt")"
 [[ "$TAG_PLAN_ID" =~ ^[0-9a-f]{16}$ ]]
 
-"$ROOT/bin/anki-tool" tag-decks --deck adjetivos --deck verbos \
+"$ROOT/bin/anki-admin" tag-decks --deck adjetivos --deck verbos \
   --execute --plan-id "$TAG_PLAN_ID" > "$TMP_DIR/tag-decks-execute.txt"
 grep -F "EXECUTE tag-decks" "$TMP_DIR/tag-decks-execute.txt" >/dev/null
 grep -F "result: tagged_notes=3" "$TMP_DIR/tag-decks-execute.txt" >/dev/null
 grep -F "sync: requested" "$TMP_DIR/tag-decks-execute.txt" >/dev/null
 
-"$ROOT/bin/anki-tool" tag-decks --deck adjetivos --deck verbos \
+"$ROOT/bin/anki-admin" tag-decks --deck adjetivos --deck verbos \
   > "$TMP_DIR/tag-decks-repeat.txt"
 grep -F "total_add_tag: 0" "$TMP_DIR/tag-decks-repeat.txt" >/dev/null
 
@@ -769,6 +826,6 @@ if "$ROOT/bin/anki-tool" deck-info --deck Español > "$TMP_DIR/deleted-deck-info
 fi
 grep -F "Missing deck(s): Español" "$TMP_DIR/deleted-deck-info.txt" >/dev/null
 
-python3 -m py_compile "$ROOT/bin/anki-tool" "$ROOT/lib/anki_connect.py"
+python3 -m py_compile "$ROOT/bin/anki-tool" "$ROOT/bin/anki-admin" "$ROOT/lib/anki_connect.py" "$ROOT/lib/note_fields.py"
 rm -rf "$ROOT/bin/__pycache__" "$ROOT/lib/__pycache__"
 bash -n "$ROOT/tests/anki-tool-test.sh"

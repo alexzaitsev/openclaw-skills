@@ -14,6 +14,16 @@
 
 ## Unreleased
 
+- Added a pure shared note-field layer. `add-basic`, `search`, `edit-note`,
+  and `edit-batch` now consistently support both dedicated `Context` fields
+  and the legacy context suffix in `Back`.
+- Every Telegram-facing mutation except standalone `sync` now emits a
+  stale-safe `plan_id` and requires it for `--execute`. The fingerprint covers
+  the reviewed request and the relevant current Anki state.
+- Split legacy bulk operations into SSH-only `bin/anki-admin`; the
+  Telegram-facing `anki-tool` no longer exposes imports or deck migrations.
+  Imports and merges now verify post-write state and report reconciled partial
+  completion rather than implying a rollback.
 - Simplified the deck-state summary to one line with total, introduced, and
   consolidated learning items; removed card and due-now counts. The seven-day
   summary now omits the preceding week's retention value.
