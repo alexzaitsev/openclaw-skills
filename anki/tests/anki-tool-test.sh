@@ -214,7 +214,11 @@ class Handler(BaseHTTPRequestHandler):
         elif action == "findCards":
             query = params["query"]
             if query.startswith("nid:"):
-                response["result"] = self.note_cards.get(int(query[4:]), [])
+                note_id = int(query[4:])
+                response["result"] = sorted(
+                    card_id for card_id, card_note_id in self.card_notes.items()
+                    if card_note_id == note_id
+                )
             elif "Vacía" in query:
                 response["result"] = []
             elif "adjetivos" in query:
@@ -258,6 +262,19 @@ class Handler(BaseHTTPRequestHandler):
             response["result"] = base64.b64encode(media).decode("ascii") if media else False
         elif action == "deleteMediaFile":
             type(self).media.pop(params["filename"], None)
+            response["result"] = None
+        elif action == "deleteNotes":
+            for note_id in params["notes"]:
+                if note_id not in self.known_notes:
+                    response["error"] = f"unknown note: {note_id}"
+                    break
+                del self.known_notes[note_id]
+                for card_id in [
+                    card_id for card_id, card_note_id in self.card_notes.items()
+                    if card_note_id == note_id
+                ]:
+                    self.card_notes.pop(card_id, None)
+                    self.card_decks.pop(card_id, None)
             response["result"] = None
         else:
             response["error"] = f"unsupported action: {action}"
@@ -364,7 +381,7 @@ grep -F "model: Basic (type in the answer + reverse + Spanish TTS)" \
   "$TMP_DIR/tts-fields.txt" >/dev/null
 
 "$ROOT/bin/anki-tool" capabilities --json > "$TMP_DIR/capabilities.json"
-grep -F '"version": 5' "$TMP_DIR/capabilities.json" >/dev/null
+grep -F '"version": 6' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"default_model": "Basic (type in the answer + reverse)"' \
   "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"roles_reference": "ANKI_ROLES.md"' "$TMP_DIR/capabilities.json" >/dev/null
@@ -373,6 +390,7 @@ grep -F '"role_tag": "deck:<role>"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"name": "create-deck"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"name": "deck-info"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"name": "delete-deck"' "$TMP_DIR/capabilities.json" >/dev/null
+grep -F '"name": "delete-note"' "$TMP_DIR/capabilities.json" >/dev/null
 grep -F '"name": "edit-batch"' "$TMP_DIR/capabilities.json" >/dev/null
 if grep -F '"name": "tag-decks"' "$TMP_DIR/capabilities.json" >/dev/null; then
   echo "expected legacy admin command to be absent from anki-tool" >&2
@@ -851,6 +869,29 @@ expect_action_increment sync "$SYNC_BEFORE"
 "$ROOT/bin/anki-admin" tag-decks --deck adjetivos --deck verbos \
   > "$TMP_DIR/tag-decks-repeat.txt"
 grep -F "total_add_tag: 0" "$TMP_DIR/tag-decks-repeat.txt" >/dev/null
+
+"$ROOT/bin/anki-tool" delete-note --note-id 7001 > "$TMP_DIR/delete-note-dry.txt"
+grep -F "DRY RUN delete-note" "$TMP_DIR/delete-note-dry.txt" >/dev/null
+grep -F "note_id: 7001" "$TMP_DIR/delete-note-dry.txt" >/dev/null
+grep -F "front: decir (hablar)" "$TMP_DIR/delete-note-dry.txt" >/dev/null
+grep -F "cards: 1" "$TMP_DIR/delete-note-dry.txt" >/dev/null
+grep -F "card: 101 deck=Default" "$TMP_DIR/delete-note-dry.txt" >/dev/null
+grep -F "warning: this deletes the note and every card generated from it" \
+  "$TMP_DIR/delete-note-dry.txt" >/dev/null
+DELETE_NOTE_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/delete-note-dry.txt")"
+[[ "$DELETE_NOTE_PLAN_ID" =~ ^[0-9a-f]{16}$ ]]
+SYNC_BEFORE="$(action_count sync)"
+"$ROOT/bin/anki-tool" delete-note --note-id 7001 --execute --plan-id "$DELETE_NOTE_PLAN_ID" \
+  > "$TMP_DIR/delete-note-execute.txt"
+grep -F "result: deleted note 7001" "$TMP_DIR/delete-note-execute.txt" >/dev/null
+grep -F "deleted_cards: 1" "$TMP_DIR/delete-note-execute.txt" >/dev/null
+grep -F "sync: requested" "$TMP_DIR/delete-note-execute.txt" >/dev/null
+expect_action_increment sync "$SYNC_BEFORE"
+if "$ROOT/bin/anki-tool" delete-note --note-id 7001 > "$TMP_DIR/delete-note-missing.txt" 2>&1; then
+  echo "expected delete-note to reject a deleted note" >&2
+  exit 1
+fi
+grep -F "could not find note 7001" "$TMP_DIR/delete-note-missing.txt" >/dev/null
 
 "$ROOT/bin/anki-tool" delete-deck --deck Español > "$TMP_DIR/delete-nonempty-dry.txt"
 grep -F "DRY RUN delete-deck" "$TMP_DIR/delete-nonempty-dry.txt" >/dev/null

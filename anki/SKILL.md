@@ -81,9 +81,11 @@ still sync to download server-side changes.
 - Do not expose AnkiConnect, edit Anki's SQLite collection, or use raw
   `findNotes`, `notesInfo`, or `updateNoteFields` calls.
 - Use only `check` or `search` for read-only card discovery.
-- Do not move, edit, or delete without the mutation protocol. Inspect a deck
-  before deletion; never delete a parent deck with children. Use
-  `--confirm-nonempty` only after approval of that exact non-empty plan.
+- Do not move, edit, or delete without the mutation protocol. Use
+  `delete-note` for an existing card: it deletes the underlying note and every
+  card generated from it. Inspect a deck before deletion; never delete a
+  parent deck with children. Use `--confirm-nonempty` only after approval of
+  that exact non-empty deck plan.
 - Use the dedicated Anki Telegram account, not the main OpenClaw chat.
 
 ## Reference map

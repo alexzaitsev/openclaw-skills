@@ -39,6 +39,7 @@ COMMAND_CAPABILITIES = [
     {"name": "deck-info", "mutates": False, "dry_run": False, "fields": []},
     {"name": "create-deck", "mutates": True, "dry_run": True, "fields": []},
     {"name": "delete-deck", "mutates": True, "dry_run": True, "fields": []},
+    {"name": "delete-note", "mutates": True, "dry_run": True, "fields": ["note ID"]},
     {"name": "models", "mutates": False, "dry_run": False, "fields": []},
     {"name": "fields", "mutates": False, "dry_run": False, "fields": []},
     {"name": "check", "mutates": False, "dry_run": False, "fields": ["Front"]},
@@ -605,6 +606,62 @@ def cmd_delete_deck(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_delete_note(args: argparse.Namespace) -> int:
+    """Delete one existing note and every card generated from it after review."""
+    note_id = args.note_id
+    note = note_info(note_id)
+    content = read_note_content(note, note_id)
+    tags = note_tags(note, note_id)
+    fields = note.get("fields")
+    if not isinstance(fields, dict):
+        raise UserFacingError(f"AnkiConnect returned invalid fields for note {note_id}.")
+    field_values: dict[str, str] = {}
+    for name, field in fields.items():
+        value = field.get("value") if isinstance(field, dict) else None
+        if value is None:
+            raise UserFacingError(f"AnkiConnect returned invalid field {name!r} for note {note_id}.")
+        field_values[str(name)] = str(value)
+    card_ids = cards_for_note(note_id)
+    decks = card_decks(card_ids)
+    plan_id = reviewed_plan_id(
+        {
+            "action": "delete-note",
+            "note_id": note_id,
+            "fields": field_values,
+            "tags": tags,
+            "cards": card_ids,
+            "decks": decks,
+        }
+    )
+    require_reviewed_plan(args.execute, args.plan_id, plan_id, "delete-note")
+
+    print("EXECUTE delete-note" if args.execute else "DRY RUN delete-note")
+    print(f"note_id: {note_id}")
+    print(f"front: {content['front']}")
+    print(f"back: {content['back']}")
+    if content["context"]:
+        print(f"context: {content['context']}")
+    print(f"tags: {format_tags(tags)}")
+    print(f"cards: {len(card_ids)}")
+    for card_id, deck in zip(card_ids, decks):
+        print(f"card: {card_id} deck={deck}")
+    print("warning: this deletes the note and every card generated from it")
+    print(f"plan_id: {plan_id}")
+    if not args.execute:
+        print("result: dry run only")
+        return 0
+
+    invoke("deleteNotes", notes=[note_id])
+    remaining = invoke("notesInfo", notes=[note_id])
+    if not isinstance(remaining, list) or remaining:
+        raise UserFacingError(f"Deleted note {note_id}, but AnkiConnect could not verify removal.")
+    print(f"result: deleted note {note_id}")
+    print(f"deleted_cards: {len(card_ids)}")
+    request_sync(f"Deleted note {note_id}")
+    print("sync: requested")
+    return 0
+
+
 def cmd_models(_args: argparse.Namespace) -> int:
     models = invoke("modelNames")
     if not isinstance(models, list):
@@ -632,7 +689,7 @@ def cmd_fields(args: argparse.Namespace) -> int:
 def cmd_capabilities(args: argparse.Namespace) -> int:
     """Expose the reviewed command surface without inspecting source files."""
     payload = {
-        "version": 5,
+        "version": 6,
         "default_model": DEFAULT_MODEL,
         "card_models": list(SUPPORTED_CARD_MODELS),
         "model_fields": invoke_model_fields(DEFAULT_MODEL),
@@ -1740,6 +1797,12 @@ def build_parser() -> argparse.ArgumentParser:
     delete_deck.add_argument("--execute", action="store_true")
     delete_deck.add_argument("--dry-run", action="store_true")
     delete_deck.set_defaults(func=cmd_delete_deck)
+    delete_note = subparsers.add_parser("delete-note")
+    delete_note.add_argument("--note-id", required=True, type=int)
+    delete_note.add_argument("--plan-id", default="")
+    delete_note.add_argument("--execute", action="store_true")
+    delete_note.add_argument("--dry-run", action="store_true")
+    delete_note.set_defaults(func=cmd_delete_note)
     subparsers.add_parser("models").set_defaults(func=cmd_models)
     fields = subparsers.add_parser("fields")
     fields.add_argument("--model", default=DEFAULT_MODEL)

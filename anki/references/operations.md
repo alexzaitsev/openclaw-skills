@@ -53,6 +53,17 @@ include `--confirm-nonempty` only when executing the exact approved plan. The
 helper uses AnkiConnect's required `cardsToo=true` only after this verified
 count, so an approved empty deletion removes zero cards.
 
+## Existing-card deletion
+
+Use `search` or `check` first to identify the exact note ID. A note can produce
+multiple cards (for example, forward and reverse); `delete-note` removes that
+note and all of its generated cards, so its dry run must show the intended
+front, back, affected cards, and decks before approval.
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool delete-note --note-id 123456789
+```
+
 ## Additions
 
 Before every `add-basic` or `add-batch` dry run, read `ANKI_ROLES.md` and
