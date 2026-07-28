@@ -53,8 +53,12 @@ are separate. `ANKI_CARD_TYPES.md` selects the model. Read both before every
    new confirmation.
 
 For `edit-batch`, the dry run materializes the reviewed payload privately for
-30 minutes. It can change `Front` only through explicit `--note-front NOTE_ID
-FRONT` entries; it rejects Front media and proposed duplicate Fronts. After
+30 minutes. `--note-front NOTE_ID FRONT` is a complete replacement and is
+allowed only for Front fields without media. Use `--note-content NOTE_ID
+CONTENT` for a strict `visible text + preserved media` Front shape; it escapes
+the new text and copies the reviewed markup byte-for-byte. `edit-note` has the
+equivalent `--front-content CONTENT` option. Ambiguous or interleaved HTML,
+duplicates, and changed source HTML are rejected before writing. After
 confirmation, execute only its reported
 `edit-batch --execute --execute-stored --plan-id <reviewed-plan-id>` command;
 never reconstruct a long sequence of `--note` arguments. The helper reloads
@@ -87,7 +91,8 @@ still sync to download server-side changes.
   all` and continue only with its printed `next_offset`. Classify only
   standalone Spanish nouns that lack an article; do not alter phrases, verbs,
   proper names, or entries that already have an article. Prepare at most one
-  20-note `edit-batch --note-front` dry run at a time, then use the normal
+  20-note `edit-batch --note-front` or media-preserving `--note-content` dry
+  run at a time, then use the normal
   Telegram confirmation before every write.
 
 ## Hard boundaries

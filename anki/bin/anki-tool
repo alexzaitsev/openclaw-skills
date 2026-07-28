@@ -27,8 +27,10 @@ from note_fields import (  # noqa: E402
     build_note_fields,
     build_text_updates,
     contains_media,
+    parse_front_content,
     plain_text,
     read_note_content,
+    serialize_front_content,
 )
 
 
@@ -45,6 +47,7 @@ EDIT_BATCH_PLAN_DIR = Path(
 EDIT_BATCH_PLAN_FIELDS = (
     "note",
     "note_front",
+    "note_content",
     "add_tag",
     "remove_tag",
     "note_add_tag",
@@ -101,7 +104,7 @@ def save_edit_batch_plan(plan_id: str, args: argparse.Namespace) -> None:
     os.chmod(EDIT_BATCH_PLAN_DIR, 0o700)
     prune_expired_edit_batch_plans(now)
     payload = {
-        "version": 1,
+        "version": 2,
         "operation": "edit-batch",
         "created_at": now,
         "expires_at": now + EDIT_BATCH_PLAN_TTL_SECONDS,
@@ -138,7 +141,7 @@ def load_edit_batch_plan(plan_id: str) -> dict[str, Any]:
     except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
         raise UserFacingError("The stored edit-batch plan is invalid; run a new dry run.") from exc
     if (
-        payload.get("version") != 1
+        payload.get("version") != 2
         or payload.get("operation") != "edit-batch"
         or float(payload.get("expires_at", 0)) <= now
         or not isinstance(payload.get("args"), dict)
@@ -457,6 +460,43 @@ def plan_tag_changes(
 
 def format_tags(tags: list[str]) -> str:
     return " ".join(tags) if tags else "<none>"
+
+
+def protected_front(note_id: int, html: str):
+    try:
+        return parse_front_content(html)
+    except NoteFieldError as exc:
+        raise UserFacingError(f"Note {note_id}: {exc}") from exc
+
+
+def front_duplicate_ids(note_id: int, proposed_content: str) -> list[int]:
+    """Return other notes with the same visible Front text."""
+    candidate_ids = invoke(
+        "findNotes", query=f'front:"{quote_search_value(proposed_content)}"'
+    )
+    if not isinstance(candidate_ids, list):
+        raise UserFacingError("AnkiConnect returned an invalid duplicate lookup.")
+    candidate_note_ids = [int(candidate_id) for candidate_id in candidate_ids]
+    candidates = invoke("notesInfo", notes=candidate_note_ids) if candidate_note_ids else []
+    if not isinstance(candidates, list) or len(candidates) != len(candidate_note_ids):
+        raise UserFacingError("AnkiConnect returned invalid duplicate note data.")
+    expected_front = plain_text(proposed_content)
+    duplicates: list[int] = []
+    for candidate_note_id, candidate in zip(candidate_note_ids, candidates):
+        if not isinstance(candidate, dict):
+            raise UserFacingError("AnkiConnect returned an invalid duplicate note.")
+        if candidate_note_id == note_id:
+            continue
+        candidate_content = read_note_content(candidate, candidate_note_id)
+        if str(candidate_content["front"]) == expected_front:
+            duplicates.append(candidate_note_id)
+    return duplicates
+
+
+def front_protection_summary(front: Any) -> str:
+    if not front.preserved_html:
+        return "none"
+    return "preserved (attachments: " + str(front.media_count) + "; types: " + ", ".join(front.media_types) + ")"
 
 
 def reviewed_plan_id(payload: object) -> str:
@@ -1032,6 +1072,7 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
     """Dry-run or apply a text and tag edit to one existing note."""
     if (
         args.front is None
+        and args.front_content is None
         and args.back is None
         and args.context is None
         and not args.clear_context
@@ -1039,8 +1080,10 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
         and not args.remove_tag
     ):
         raise UserFacingError(
-            "Provide --front, --back, --context, --clear-context, --add-tag, or --remove-tag."
+            "Provide --front, --front-content, --back, --context, --clear-context, --add-tag, or --remove-tag."
         )
+    if args.front is not None and args.front_content is not None:
+        raise UserFacingError("Use either --front or --front-content, not both.")
     if args.context is not None and args.clear_context:
         raise UserFacingError("Use either --context or --clear-context, not both.")
 
@@ -1059,7 +1102,14 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
         current_tags, requested_add_tags, requested_remove_tags
     )
 
-    proposed_front = args.front.strip() if args.front is not None else current_front
+    current_protected_front = None
+    if args.front_content is not None:
+        current_protected_front = protected_front(note_id, current_front_html)
+    proposed_front = (
+        args.front_content.strip()
+        if args.front_content is not None
+        else (args.front.strip() if args.front is not None else current_front)
+    )
     proposed_back = args.back.strip() if args.back is not None else current_back
     if args.context is not None:
         proposed_context = args.context.strip() or None
@@ -1071,7 +1121,7 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
         raise UserFacingError("Front and Back must remain non-empty.")
     if args.front is not None and contains_media(current_front_html):
         raise UserFacingError(
-            f"Note {note_id} has media in Front; text editing it is not supported yet."
+            f"Note {note_id} has media in Front; use --front-content to preserve it."
         )
     if (args.back is not None or args.context is not None or args.clear_context) and contains_media(
         current_back_html
@@ -1085,23 +1135,43 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
         front=proposed_front,
         back=proposed_back,
         context=proposed_context,
-        change_front=args.front is not None,
+        change_front=args.front is not None or args.front_content is not None,
         change_back_or_context=(
             args.back is not None or args.context is not None or args.clear_context
         ),
     )
+    if args.front_content is not None and current_protected_front is not None:
+        updates["Front"] = serialize_front_content(proposed_front, current_protected_front)
+    if proposed_front != current_front:
+        duplicates = front_duplicate_ids(note_id, proposed_front)
+        if duplicates:
+            raise UserFacingError(
+                f"Proposed Front for note {note_id} already exists in note(s): "
+                + ", ".join(str(candidate) for candidate in duplicates)
+                + "."
+            )
     plan_id = reviewed_plan_id(
         {
             "action": "edit-note",
             "note_id": note_id,
             "current": {
                 "front": current_front,
+                "front_html_sha256": (
+                    current_protected_front.original_html_sha256
+                    if current_protected_front is not None
+                    else None
+                ),
                 "back": current_back,
                 "context": current_context,
                 "tags": current_tags,
             },
             "proposed": {
                 "front": proposed_front,
+                "front_preserved_html_sha256": (
+                    hashlib.sha256(current_protected_front.preserved_html.encode("utf-8")).hexdigest()
+                    if current_protected_front is not None
+                    else None
+                ),
                 "back": proposed_back,
                 "context": proposed_context,
                 "tags": proposed_tags,
@@ -1115,6 +1185,10 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
     print(f"note_id: {note_id}")
     print(f"current_front: {current_front}")
     print(f"proposed_front: {proposed_front}")
+    if current_protected_front is not None:
+        print(f"front_content_current: {current_protected_front.content}")
+        print(f"front_content_proposed: {proposed_front}")
+        print(f"front_markup_media: {front_protection_summary(current_protected_front)}")
     print(f"current_back: {current_back}")
     print(f"proposed_back: {proposed_back}")
     print(f"current_context: {current_context or '<none>'}")
@@ -1151,6 +1225,24 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
         or not same_tag_set(verified_tags, proposed_tags)
     ):
         raise UserFacingError(f"Updated note {note_id}, but field or tag verification failed.")
+    if current_protected_front is not None:
+        verified_html = note_field_value(verified, "Front", note_id)
+        verified_protected_front = protected_front(note_id, verified_html)
+        if (
+            verified_protected_front.content != proposed_front
+            or verified_protected_front.preserved_html != current_protected_front.preserved_html
+            or verified_html != updates["Front"]
+        ):
+            raise UserFacingError(
+                f"Updated note {note_id}, but protected Front markup verification failed."
+            )
+    duplicates = front_duplicate_ids(note_id, proposed_front)
+    if duplicates:
+        raise UserFacingError(
+            f"Updated note {note_id}, but duplicate Front verification failed: "
+            + ", ".join(str(candidate) for candidate in duplicates)
+            + "."
+        )
     print(f"result: updated note {note_id}")
     print(f"verified_front: {verified_front}")
     print(f"verified_back: {verified_back}")
@@ -1167,9 +1259,9 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         if not args.execute:
             raise UserFacingError("--execute-stored requires --execute.")
         restore_edit_batch_plan_args(args)
-    if not args.note and not args.note_front:
+    if not args.note and not args.note_front and not args.note_content:
         raise UserFacingError(
-            "Provide at least one --note or --note-front for an edit-batch dry run."
+            "Provide at least one --note, --note-front, or --note-content for an edit-batch dry run."
         )
     global_add_tags = normalize_tags(args.add_tag)
     global_remove_tags = normalize_tags(args.remove_tag)
@@ -1194,6 +1286,7 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
 
     back_updates: dict[int, tuple[str, bool, str | None]] = {}
     front_updates: dict[int, str] = {}
+    front_content_updates: dict[int, str] = {}
     ordered_note_ids: list[int] = []
     for index, raw_note in enumerate(args.note, 1):
         if len(raw_note) not in (2, 3):
@@ -1238,6 +1331,25 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         if note_id not in back_updates:
             ordered_note_ids.append(note_id)
 
+    for index, raw_note_content in enumerate(args.note_content, 1):
+        raw_id, raw_content = raw_note_content
+        try:
+            note_id = int(raw_id)
+        except ValueError as exc:
+            raise UserFacingError(
+                f"--note-content #{index} NOTE_ID must be an integer."
+            ) from exc
+        if note_id in front_content_updates or note_id in front_updates:
+            raise UserFacingError(
+                f"Front edit supplies note {note_id} more than once."
+            )
+        content_value = raw_content.strip()
+        if not content_value:
+            raise UserFacingError(f"--note-content #{index} CONTENT must be non-empty.")
+        front_content_updates[note_id] = content_value
+        if note_id not in back_updates:
+            ordered_note_ids.append(note_id)
+
     plans: list[dict[str, Any]] = []
     for note_id in ordered_note_ids:
         back_argument, context_supplied, context_argument = back_updates.get(
@@ -1251,6 +1363,11 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         current_back = str(content["back"])
         current_context = content["context"]
         current_tags = note_tags(note, note_id)
+        current_protected_front = (
+            protected_front(note_id, current_front_html)
+            if note_id in front_content_updates
+            else None
+        )
         requested_add_tags = normalize_tags(
             global_add_tags + per_note_add_tags.get(note_id, [])
         )
@@ -1260,15 +1377,18 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         add_tags, remove_tags, proposed_tags = plan_tag_changes(
             current_tags, requested_add_tags, requested_remove_tags
         )
-        proposed_front = front_updates.get(note_id, current_front)
+        proposed_front = front_content_updates.get(
+            note_id, front_updates.get(note_id, current_front)
+        )
         proposed_back = current_back if back_argument == "=" else back_argument
         proposed_context = (
             (context_argument or None) if context_supplied else current_context
         )
         if proposed_front != current_front and contains_media(current_front_html):
-            raise UserFacingError(
-                f"Note {note_id} has media in Front; text editing it is not supported yet."
-            )
+            if note_id in front_updates:
+                raise UserFacingError(
+                    f"Note {note_id} has media in Front; use --note-content to preserve it."
+                )
         if (back_argument != "=" or context_supplied) and contains_media(current_back_html):
             raise UserFacingError(
                 f"Note {note_id} has media in Back; text/context editing it is not supported yet."
@@ -1284,11 +1404,20 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
                 proposed_back != current_back or proposed_context != current_context
             ),
         )
+        if current_protected_front is not None:
+            updates["Front"] = serialize_front_content(proposed_front, current_protected_front)
         plans.append(
             {
                 "note_id": note_id,
                 "current_front": current_front,
                 "proposed_front": proposed_front,
+                "front_content_edit": note_id in front_content_updates,
+                "front_html_sha256": (
+                    current_protected_front.original_html_sha256
+                    if current_protected_front is not None
+                    else None
+                ),
+                "front_protection": current_protected_front,
                 "current_back": current_back,
                 "proposed_back": proposed_back,
                 "current_context": current_context,
@@ -1326,26 +1455,7 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
             )
         planned_fronts[front_key] = plan["note_id"]
 
-        candidate_ids = invoke(
-            "findNotes",
-            query=f'front:"{quote_search_value(plan["proposed_front"])}"',
-        )
-        if not isinstance(candidate_ids, list):
-            raise UserFacingError("AnkiConnect returned an invalid duplicate lookup.")
-        candidate_note_ids = [int(candidate_id) for candidate_id in candidate_ids]
-        candidates = invoke("notesInfo", notes=candidate_note_ids) if candidate_note_ids else []
-        if not isinstance(candidates, list) or len(candidates) != len(candidate_note_ids):
-            raise UserFacingError("AnkiConnect returned invalid duplicate note data.")
-        duplicates = []
-        expected_front = plain_text(plan["proposed_front"])
-        for candidate_note_id, candidate in zip(candidate_note_ids, candidates):
-            if not isinstance(candidate, dict):
-                raise UserFacingError("AnkiConnect returned an invalid duplicate note.")
-            if candidate_note_id == plan["note_id"]:
-                continue
-            candidate_content = read_note_content(candidate, candidate_note_id)
-            if plain_text(str(candidate_content["front"])) == expected_front:
-                duplicates.append(candidate_note_id)
+        duplicates = front_duplicate_ids(plan["note_id"], plan["proposed_front"])
         if duplicates:
             raise UserFacingError(
                 f"Proposed Front for note {plan['note_id']} already exists in note(s): "
@@ -1363,6 +1473,7 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
             "note_id": plan["note_id"],
             "current_front": plan["current_front"],
             "proposed_front": plan["proposed_front"],
+            "front_html_sha256": plan["front_html_sha256"],
             "current_back": plan["current_back"],
             "proposed_back": plan["proposed_back"],
             "current_context": plan["current_context"],
@@ -1391,6 +1502,11 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         print(f"[{index}] note_id: {plan['note_id']}")
         print(f"[{index}] current_front: {plan['current_front']}")
         print(f"[{index}] proposed_front: {plan['proposed_front']}")
+        if plan["front_content_edit"]:
+            protected = plan["front_protection"]
+            print(f"[{index}] front_content_current: {protected.content}")
+            print(f"[{index}] front_content_proposed: {plan['proposed_front']}")
+            print(f"[{index}] front_markup_media: {front_protection_summary(protected)}")
         print(f"[{index}] current_back: {plan['current_back']}")
         print(f"[{index}] proposed_back: {plan['proposed_back']}")
         print(f"[{index}] current_context: {plan['current_context'] or '<none>'}")
@@ -1445,6 +1561,25 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         if not same_tag_set(verified_tags, plan["proposed_tags"]):
             raise UserFacingError(
                 f"Updated note {note_id}, but tag verification failed."
+            )
+        if plan["front_content_edit"]:
+            verified_html = note_field_value(verified, "Front", note_id)
+            verified_protected = protected_front(note_id, verified_html)
+            expected_protected = plan["front_protection"]
+            if (
+                verified_protected.content != plan["proposed_front"]
+                or verified_protected.preserved_html != expected_protected.preserved_html
+                or verified_html != updates["Front"]
+            ):
+                raise UserFacingError(
+                    f"Updated note {note_id}, but protected Front markup verification failed."
+                )
+        duplicates = front_duplicate_ids(note_id, plan["proposed_front"])
+        if duplicates:
+            raise UserFacingError(
+                f"Updated note {note_id}, but duplicate Front verification failed: "
+                + ", ".join(str(candidate) for candidate in duplicates)
+                + "."
             )
         updated_ids.append(note_id)
         print(
@@ -2126,6 +2261,7 @@ def build_parser() -> argparse.ArgumentParser:
     edit_note = subparsers.add_parser("edit-note")
     edit_note.add_argument("--note-id", required=True, type=int)
     edit_note.add_argument("--front")
+    edit_note.add_argument("--front-content")
     edit_note.add_argument("--back")
     edit_note.add_argument("--context")
     edit_note.add_argument("--clear-context", action="store_true")
@@ -2148,6 +2284,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         nargs=2,
         metavar=("NOTE_ID", "FRONT"),
+        default=[],
+    )
+    edit_batch.add_argument(
+        "--note-content",
+        action="append",
+        nargs=2,
+        metavar=("NOTE_ID", "CONTENT"),
         default=[],
     )
     edit_batch.add_argument("--add-tag", action="append", default=[])

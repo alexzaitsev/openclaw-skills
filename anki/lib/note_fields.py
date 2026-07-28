@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
+from dataclasses import dataclass
 from html import escape
 from html.parser import HTMLParser
 from typing import Any
@@ -15,6 +17,177 @@ CONTEXT_SUFFIX = re.compile(
 
 class NoteFieldError(ValueError):
     """Raised when AnkiConnect returns fields outside this skill's contract."""
+
+
+@dataclass(frozen=True)
+class FrontContent:
+    """One strictly reversible Front representation for content-only edits.
+
+    ``preserved_html`` is deliberately opaque to callers.  It is copied from
+    Anki verbatim, never reconstructed from parsed attributes or media paths.
+    """
+
+    content: str
+    preserved_html: str
+    media_types: tuple[str, ...]
+    original_html_sha256: str
+
+    @property
+    def media_count(self) -> int:
+        return len(self.media_types)
+
+
+class _FrontStructureParser(HTMLParser):
+    """Validate the intentionally small Front-with-attachments grammar.
+
+    The editable prefix is text only.  Once preserved markup begins, only
+    ``br``, media elements, and standalone ``[sound:name]`` attachments are
+    accepted, with no visible text interleaved between them.  This lets the
+    serializer retain the exact original suffix without trying to understand
+    arbitrary Anki HTML.
+    """
+
+    _MEDIA_TAGS = {"img", "audio", "video"}
+
+    def __init__(self, source: str) -> None:
+        super().__init__(convert_charrefs=False)
+        self.source = source
+        self.preserved_offset: int | None = None
+        self.in_preserved = False
+        self.media_types: list[str] = []
+        self.error: str | None = None
+        self.open_media: list[str] = []
+
+    def _offset(self) -> int:
+        line, column = self.getpos()
+        if line == 1:
+            return column
+        lines = self.source.splitlines(keepends=True)
+        return sum(len(item) for item in lines[: line - 1]) + column
+
+    def _fail(self, reason: str) -> None:
+        if self.error is None:
+            self.error = reason
+
+    def _begin_preserved(self) -> None:
+        if not self.in_preserved:
+            self.in_preserved = True
+            self.preserved_offset = self._offset()
+
+    def _begin_preserved_at(self, offset: int) -> None:
+        if not self.in_preserved:
+            self.in_preserved = True
+            self.preserved_offset = offset
+
+    def handle_data(self, data: str) -> None:
+        if not self.in_preserved:
+            sound_offset = data.find("[sound:")
+            if sound_offset >= 0:
+                self._begin_preserved_at(self._offset() + sound_offset)
+                data = data[sound_offset:]
+            else:
+                return
+        if not data.isspace():
+            if data.startswith("[sound:") and data.endswith("]") and len(data) > 8:
+                self.media_types.append("sound")
+            else:
+                self._fail("visible text is interleaved with preserved Front markup")
+
+    def handle_entityref(self, name: str) -> None:
+        if self.in_preserved:
+            self._fail("an HTML entity is interleaved with preserved Front markup")
+
+    def handle_charref(self, name: str) -> None:
+        if self.in_preserved:
+            self._fail("an HTML character reference is interleaved with preserved Front markup")
+
+    def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.casefold()
+        if not self.in_preserved:
+            if tag not in self._MEDIA_TAGS | {"br"}:
+                self._fail(f"unsupported Front element <{tag}>")
+                return
+            self._begin_preserved()
+        if tag == "br":
+            return
+        if tag not in self._MEDIA_TAGS:
+            self._fail(f"unsupported Front element <{tag}>")
+            return
+        self.media_types.append(tag)
+        if tag in {"audio", "video"}:
+            self.open_media.append(tag)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+        if tag.casefold() in {"audio", "video"} and self.open_media:
+            self.open_media.pop()
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.casefold()
+        if tag not in {"audio", "video"} or not self.open_media or self.open_media[-1] != tag:
+            self._fail(f"unsupported or unbalanced Front closing tag </{tag}>")
+            return
+        self.open_media.pop()
+
+    def handle_comment(self, _data: str) -> None:
+        self._fail("comments are not supported in a content-editable Front")
+
+    def handle_decl(self, _decl: str) -> None:
+        self._fail("declarations are not supported in a content-editable Front")
+
+    def unknown_decl(self, _data: str) -> None:
+        self._fail("declarations are not supported in a content-editable Front")
+
+
+def parse_front_content(value: object) -> FrontContent:
+    """Parse the safe ``text + preserved attachments`` Front shape.
+
+    This is intentionally not a general HTML transformation.  Any markup in
+    the editable text, media without an unambiguous suffix, or interleaved
+    visible content fails before an Anki write is attempted.
+    """
+    source = str(value)
+    parser = _FrontStructureParser(source)
+    parser.feed(source)
+    parser.close()
+    if parser.error:
+        raise NoteFieldError(
+            "Front content editing is not supported for this HTML structure: " + parser.error + "."
+        )
+    if parser.open_media:
+        raise NoteFieldError(
+            "Front content editing is not supported for this HTML structure: unclosed media element."
+        )
+    if parser.preserved_offset is None:
+        if "<" in source or ">" in source:
+            raise NoteFieldError(
+                "Front content editing is not supported for this HTML structure: markup is ambiguous."
+            )
+        content = plain_text(source)
+        preserved_html = ""
+    else:
+        content = plain_text(source[: parser.preserved_offset])
+        preserved_html = source[parser.preserved_offset :]
+    if not content:
+        raise NoteFieldError("Front content editing requires non-empty visible text before media.")
+    if preserved_html and not parser.media_types:
+        raise NoteFieldError(
+            "Front content editing is not supported for this HTML structure: no preserved attachment."
+        )
+    return FrontContent(
+        content=content,
+        preserved_html=preserved_html,
+        media_types=tuple(parser.media_types),
+        original_html_sha256=hashlib.sha256(source.encode("utf-8")).hexdigest(),
+    )
+
+
+def serialize_front_content(content: str, front: FrontContent) -> str:
+    """Escape new visible text and append the exact reviewed protected suffix."""
+    normalized = content.strip()
+    if not normalized:
+        raise NoteFieldError("Front content must be non-empty.")
+    return escape(normalized) + front.preserved_html
 
 
 class _TextExtractor(HTMLParser):

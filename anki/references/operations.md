@@ -135,8 +135,14 @@ When “it” refers to a newly added note, use the immediately preceding
 
 `edit-note` changes any combination of front, back, context, and tags. Use
 `--clear-context` to remove context and repeat `--add-tag` / `--remove-tag` as
-needed. Media editing is excluded: field markup for image, audio, or video
-fails rather than risking lost media.
+needed. `--front` remains a complete replacement and rejects a media-bearing
+Front. For the strict safe shape `text + preserved media markup`, use
+`--front-content`: it escapes the new text and attaches the exact reviewed
+suffix. It refuses arbitrary, ambiguous, or interleaved HTML.
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool edit-note --note-id 123456789 --front-content "la gata"
+```
 
 ```bash
 /home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool edit-batch --note 1780781752051 "я смотрю" "англ. to watch" --note 1780781752083 "ты смотришь" "англ. to watch" --add-tag source:telegram --note-add-tag 1780781752051 grammar::verbs
@@ -150,8 +156,17 @@ Use `edit-batch` whenever one request affects multiple existing notes. Each
 /home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool edit-batch --note-front 123456789 "la palabra" --note-front 123456790 "el libro"
 ```
 
-Front edits reject media and a proposed Front that would duplicate another
-note. Global tag deltas use `--add-tag` / `--remove-tag`; one note uses
+`--note-front` is a complete replacement and rejects media. For a Front with
+the safe `text + preserved media` shape, use `--note-content`; the dry run
+shows current and new content plus attachment count/types (never file paths),
+and binds the source HTML hash into the plan. The execute step refuses a stale
+markup change and verifies visible text, exact protected HTML, and duplicates.
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool edit-batch --note-content 123456789 "la gata" --note-content 123456790 "los lentes"
+```
+
+All Front edits reject a proposed duplicate note. Global tag deltas use `--add-tag` / `--remove-tag`; one note uses
 `--note-add-tag NOTE_ID TAG` / `--note-remove-tag NOTE_ID TAG`. Unrelated tags
 are preserved. The dry run prints an `execute_command`. After the later
 confirmation, invoke that exact stored-plan command rather than retyping the

@@ -53,6 +53,7 @@ from pathlib import Path
 PORT = int(sys.argv[1])
 ACTIONS_LOG = Path(sys.argv[2])
 FAIL_SYNC = ACTIONS_LOG.with_suffix(".fail-sync")
+STALE_HTML = ACTIONS_LOG.with_name("stale-html")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -78,7 +79,7 @@ class Handler(BaseHTTPRequestHandler):
         },
         7002: {
             "fields": {
-                "Front": {"value": "con imagen<br><img src=\"test.png\">"},
+                "Front": {"value": "gata<br><img src=\"test.png\">"},
                 "Back": {"value": "with image"},
             },
             "tags": [],
@@ -129,6 +130,20 @@ class Handler(BaseHTTPRequestHandler):
             "fields": {
                 "Front": {"value": "la mano"},
                 "Back": {"value": "рука"},
+            },
+            "tags": ["deck:general"],
+        },
+        7010: {
+            "fields": {
+                "Front": {"value": "lentes<br><img src=\"one.png\"><br><img src=\"two.png\">"},
+                "Back": {"value": "очки"},
+            },
+            "tags": ["deck:general"],
+        },
+        7011: {
+            "fields": {
+                "Front": {"value": "vaqueros<span>extra</span><img src=\"bad.png\">"},
+                "Back": {"value": "ковбои"},
             },
             "tags": ["deck:general"],
         },
@@ -217,27 +232,48 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 response["result"] = []
         elif action == "notesInfo":
-            response["result"] = [
-                {
-                    **self.known_notes[note_id],
+            notes = []
+            for note_id in params["notes"]:
+                if note_id not in self.known_notes:
+                    notes.append(None)
+                    continue
+                fields = {
+                    name: {"value": value["value"]}
+                    for name, value in self.known_notes[note_id]["fields"].items()
+                }
+                if note_id == 7002 and STALE_HTML.exists():
+                    fields["Front"] = {"value": "gata<br><img src=\"changed.png\">"}
+                notes.append({
+                    "fields": fields,
                     "tags": [
                         unicodedata.normalize("NFD", tag)
                         for tag in self.known_notes[note_id]["tags"]
                     ],
-                }
-                for note_id in params["notes"]
-                if note_id in self.known_notes
-            ] + [
-                None
-                for note_id in params["notes"]
-                if note_id not in self.known_notes
-            ]
+                })
+            response["result"] = notes
         elif action == "updateNoteFields":
             note = params["note"]
             note_id = note["id"]
             if note_id not in self.known_notes:
                 response["error"] = f"unknown note: {note_id}"
             else:
+                expected_fronts = {
+                    7010: "los lentes<br><img src=\"one.png\"><br><img src=\"two.png\">",
+                }
+                expected_front = expected_fronts.get(note_id)
+                front_value = note["fields"].get("Front", "")
+                if note_id == 7002 and front_value not in {
+                    "la gata<br><img src=\"test.png\">",
+                    "la &lt;gata&gt; &amp;<br><img src=\"test.png\">",
+                }:
+                    expected_front = "a preserved image suffix with escaped replacement text"
+                if expected_front and front_value != expected_front:
+                    response["error"] = "protected Front HTML was not preserved exactly"
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps(response).encode("utf-8"))
+                    return
                 fields = self.known_notes[note_id]["fields"]
                 for name, value in note["fields"].items():
                     fields[name] = {"value": value}
@@ -961,6 +997,62 @@ if "$ROOT/bin/anki-tool" edit-note \
   exit 1
 fi
 grep -F "has media in Front" "$TMP_DIR/edit-media.txt" >/dev/null
+
+"$ROOT/bin/anki-tool" edit-note --note-id 7002 --front-content "la gata" \
+  > "$TMP_DIR/edit-media-content-dry.txt"
+grep -F "front_content_current: gata" "$TMP_DIR/edit-media-content-dry.txt" >/dev/null
+grep -F "front_content_proposed: la gata" "$TMP_DIR/edit-media-content-dry.txt" >/dev/null
+grep -F "front_markup_media: preserved (attachments: 1; types: img)" \
+  "$TMP_DIR/edit-media-content-dry.txt" >/dev/null
+MEDIA_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-media-content-dry.txt")"
+SYNC_BEFORE="$(action_count sync)"
+"$ROOT/bin/anki-tool" edit-note --note-id 7002 --front-content "la gata" \
+  --execute --plan-id "$MEDIA_PLAN_ID" > "$TMP_DIR/edit-media-content-execute.txt"
+grep -F "verified_front: la gata" "$TMP_DIR/edit-media-content-execute.txt" >/dev/null
+expect_action_increment sync "$SYNC_BEFORE"
+
+"$ROOT/bin/anki-tool" edit-note --note-id 7002 --front-content "la <gata> &" \
+  > "$TMP_DIR/edit-media-escape-dry.txt"
+ESCAPE_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-media-escape-dry.txt")"
+"$ROOT/bin/anki-tool" edit-note --note-id 7002 --front-content "la <gata> &" \
+  --execute --plan-id "$ESCAPE_PLAN_ID" > "$TMP_DIR/edit-media-escape-execute.txt"
+grep -F "verified_front: la <gata> &" "$TMP_DIR/edit-media-escape-execute.txt" >/dev/null
+
+"$ROOT/bin/anki-tool" edit-batch --note-content 7010 "los lentes" \
+  > "$TMP_DIR/edit-multiple-media-dry.txt"
+grep -F "front_markup_media: preserved (attachments: 2; types: img, img)" \
+  "$TMP_DIR/edit-multiple-media-dry.txt" >/dev/null
+MULTI_MEDIA_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-multiple-media-dry.txt")"
+"$ROOT/bin/anki-tool" edit-batch --execute --execute-stored --plan-id "$MULTI_MEDIA_PLAN_ID" \
+  > "$TMP_DIR/edit-multiple-media-execute.txt"
+grep -F "updated_note=7010 front=los lentes" "$TMP_DIR/edit-multiple-media-execute.txt" >/dev/null
+
+if "$ROOT/bin/anki-tool" edit-note --note-id 7002 --front-content "la mano" \
+  > "$TMP_DIR/edit-media-duplicate.txt" 2>&1; then
+  echo "expected content edit to reject a duplicate Front" >&2
+  exit 1
+fi
+grep -F "Proposed Front for note 7002 already exists in note(s): 7009." \
+  "$TMP_DIR/edit-media-duplicate.txt" >/dev/null
+
+"$ROOT/bin/anki-tool" edit-note --note-id 7002 --front-content "la gata" \
+  > "$TMP_DIR/edit-media-stale-dry.txt"
+STALE_MEDIA_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-media-stale-dry.txt")"
+touch "$TMP_DIR/stale-html"
+if "$ROOT/bin/anki-tool" edit-note --note-id 7002 --front-content "la gata" \
+  --execute --plan-id "$STALE_MEDIA_PLAN_ID" > "$TMP_DIR/edit-media-stale.txt" 2>&1; then
+  echo "expected content edit to reject stale protected HTML" >&2
+  exit 1
+fi
+rm "$TMP_DIR/stale-html"
+grep -F "Edit-note plan is stale" "$TMP_DIR/edit-media-stale.txt" >/dev/null
+
+if "$ROOT/bin/anki-tool" edit-note --note-id 7011 --front-content "los vaqueros" \
+  > "$TMP_DIR/edit-media-nonstandard.txt" 2>&1; then
+  echo "expected content edit to reject non-standard Front HTML" >&2
+  exit 1
+fi
+grep -F "unsupported Front element <span>" "$TMP_DIR/edit-media-nonstandard.txt" >/dev/null
 
 "$ROOT/bin/anki-admin" tag-decks --deck adjetivos --deck verbos \
   > "$TMP_DIR/tag-decks-dry.txt"

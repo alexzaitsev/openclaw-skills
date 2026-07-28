@@ -15,7 +15,9 @@ reconstructed sequence of note arguments.
 Do not paste raw helper output. Show enough to approve the write: additions
 need deck, role, model, fields, tags, and duplicate result; edits that change
 Front need the current and proposed Front for every note (and batch edits need
-the complete bounded note list); moves need source, target, count, and tags; note deletion
+the complete bounded note list). A `--front-content` / `--note-content` plan
+also states that markup/media are preserved and shows only attachment count and
+types, never media paths; moves need source, target, count, and tags; note deletion
 needs note ID, front, back, affected cards/decks, and its warning; deck deletion
 needs deck, card/note counts, emptiness, and warning. For one staged image, add type,
 dimensions, bytes, SHA-256, and `Front` placement—never its VM path.
