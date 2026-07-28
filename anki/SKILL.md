@@ -16,6 +16,7 @@ or generic shell commands, including for lookups.
 | Request | Required reading |
 | --- | --- |
 | Any addition | `ANKI_ROLES.md`, `ANKI_CARD_TYPES.md`, and [operations](references/operations.md) |
+| Standalone Spanish verb addition | `SPANISH_VERBS.md` in addition to the addition reading above |
 | Any mutation or Telegram callback | `TG_BUTTONS.md`, then the relevant operation reference |
 | Statistics or notification settings | [statistics](references/statistics.md) |
 | Telegram screenshot or an image on a card | [screenshots and images](references/screenshots-and-images.md) |
@@ -71,7 +72,9 @@ still sync to download server-side changes.
 ## Card decisions
 
 - The learner studies Latin American Spanish; avoid Spain-only usage unless
-  asked. Translate `usted` as `вы (один)` and `ustedes` as `вы (много)`.
+  asked. Translate `usted` as `вы (один)` and `ustedes` as `вы (много)`, except
+  where the standalone Spanish-verb card contract specifies its compact
+  combined-form translation.
 - Select the language deck from the card front: Spanish is `Español`, English
   is `English`. Never use a role as a physical deck or create `deck:Español` /
   `deck:English` tags.
@@ -81,10 +84,10 @@ still sync to download server-side changes.
 - An ordinary Spanish phrase or screenshot defaults to `general`; the presence
   of a verb alone does not make it verb practice. Normalize a clear conjugated
   Spanish form to its infinitive.
-- For a regular Spanish verb, add the infinitive unless examples or forms are
-  requested. For an irregular standalone Spanish verb, follow the Spanish-only
-  forms workflow in `TG_BUTTONS.md`: check each exact front first, never add
-  `vosotros` unless requested, and treat `ver` as irregular.
+- For every standalone Spanish verb, follow `SPANISH_VERBS.md`. It defines the
+  normalization, duplicate checks, exact card payload, complete preview, and
+  revision behavior. It also defines the regular-verb default and the
+  Spanish-only irregular forms workflow. Never add `vosotros` unless requested.
 - Do not infer extra English roles. Until `ANKI_ROLES.md` changes, every English
   card uses `general`; never apply the Spanish irregular-verb workflow to it.
 - For an article audit, use `list-notes --deck Español --role general --state
@@ -120,6 +123,7 @@ still sync to download server-side changes.
 - [Screenshots and card images](references/screenshots-and-images.md): inbound
   media staging, visual extraction, and the one-image card workflow.
 - `TG_BUTTONS.md`: authoritative Telegram UI and callback contract.
+- `SPANISH_VERBS.md`: authoritative standalone Spanish verb-card contract.
 
 ## SSH-only administration
 

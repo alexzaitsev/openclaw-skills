@@ -201,6 +201,21 @@ class Handler(BaseHTTPRequestHandler):
                     response["error"] = "general batch note is missing its deck role tag"
                 if fields["Front"] == "cambiar" and "deck:verbos" not in note["tags"]:
                     response["error"] = "verbos batch note is missing its deck role tag"
+                expected_dar_cards = {
+                    "dar": ("давать; дать", ""),
+                    "yo doy": ("я даю", "dar"),
+                    "tú das": ("ты даёшь", "dar"),
+                    "él / ella / usted da": ("он/она даёт", "dar; usted"),
+                    "nosotros damos": ("мы даём", "dar"),
+                    "ellos / ellas / ustedes dan": ("они дают, вы даёте", "dar; ustedes"),
+                }
+                expected_dar = expected_dar_cards.get(fields["Front"])
+                if expected_dar and (
+                    fields["Back"], fields["Context"]
+                ) != expected_dar:
+                    response["error"] = "dar verb-card contract was mapped incorrectly"
+                if expected_dar and "deck:verbos" not in note["tags"]:
+                    response["error"] = "dar verb card is missing its deck role tag"
                 if fields["Front"] == "la carne" and "deck:general" not in note["tags"]:
                     response["error"] = "imported note is missing its deck role tag"
             response["result"] = [True for _ in params["notes"]]
@@ -816,6 +831,50 @@ grep -F "EXECUTE add-batch" "$TMP_DIR/batch-execute.txt" >/dev/null
 [[ "$(grep -c 'verified_deck=Español' "$TMP_DIR/batch-execute.txt")" -eq 2 ]]
 grep -F "result: created=2 skipped=0" "$TMP_DIR/batch-execute.txt" >/dev/null
 grep -F "sync: requested" "$TMP_DIR/batch-execute.txt" >/dev/null
+expect_action_increment sync "$SYNC_BEFORE"
+
+# The standalone irregular-verb contract must create the complete `dar`
+# payload. The only executable plan is the ID generated from this exact final
+# preview; any operator correction requires a new dry run by the mutation
+# protocol in SKILL.md.
+"$ROOT/bin/anki-tool" add-batch \
+  --model "Basic (type in the answer + reverse)" \
+  --note Español verbos "dar" "давать; дать" \
+  --note Español verbos "yo doy" "я даю" "dar" \
+  --note Español verbos "tú das" "ты даёшь" "dar" \
+  --note Español verbos "él / ella / usted da" "он/она даёт" "dar; usted" \
+  --note Español verbos "nosotros damos" "мы даём" "dar" \
+  --note Español verbos "ellos / ellas / ustedes dan" "они дают, вы даёте" "dar; ustedes" \
+  --tag source:telegram \
+  > "$TMP_DIR/dar-dry.txt"
+grep -F "DRY RUN add-batch" "$TMP_DIR/dar-dry.txt" >/dev/null
+grep -F "notes: 6" "$TMP_DIR/dar-dry.txt" >/dev/null
+grep -F "[1] OK Español [deck:verbos]: dar -> давать; дать" "$TMP_DIR/dar-dry.txt" >/dev/null
+grep -F "[1] context: <none>" "$TMP_DIR/dar-dry.txt" >/dev/null
+grep -F "[4] OK Español [deck:verbos]: él / ella / usted da -> он/она даёт" "$TMP_DIR/dar-dry.txt" >/dev/null
+grep -F "[4] context: dar; usted" "$TMP_DIR/dar-dry.txt" >/dev/null
+grep -F "[6] OK Español [deck:verbos]: ellos / ellas / ustedes dan -> они дают, вы даёте" "$TMP_DIR/dar-dry.txt" >/dev/null
+grep -F "[6] context: dar; ustedes" "$TMP_DIR/dar-dry.txt" >/dev/null
+DAR_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/dar-dry.txt")"
+[[ "$DAR_PLAN_ID" =~ ^[0-9a-f]{16}$ ]]
+
+SYNC_BEFORE="$(action_count sync)"
+"$ROOT/bin/anki-tool" add-batch \
+  --model "Basic (type in the answer + reverse)" \
+  --note Español verbos "dar" "давать; дать" \
+  --note Español verbos "yo doy" "я даю" "dar" \
+  --note Español verbos "tú das" "ты даёшь" "dar" \
+  --note Español verbos "él / ella / usted da" "он/она даёт" "dar; usted" \
+  --note Español verbos "nosotros damos" "мы даём" "dar" \
+  --note Español verbos "ellos / ellas / ustedes dan" "они дают, вы даёте" "dar; ustedes" \
+  --tag source:telegram \
+  --execute \
+  --plan-id "$DAR_PLAN_ID" \
+  > "$TMP_DIR/dar-execute.txt"
+grep -F "EXECUTE add-batch" "$TMP_DIR/dar-execute.txt" >/dev/null
+grep -F "result: created=6 skipped=0" "$TMP_DIR/dar-execute.txt" >/dev/null
+[[ "$(grep -c 'verified_deck=Español' "$TMP_DIR/dar-execute.txt")" -eq 6 ]]
+grep -F "sync: requested" "$TMP_DIR/dar-execute.txt" >/dev/null
 expect_action_increment sync "$SYNC_BEFORE"
 
 cat > "$TMP_DIR/cards.json" <<'JSON'

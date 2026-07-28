@@ -94,6 +94,10 @@ front, back, affected cards, and decks before approval.
 Before every `add-basic` or `add-batch` dry run, read `ANKI_ROLES.md` and
 `ANKI_CARD_TYPES.md`, then read live fields for every selected model:
 
+For a standalone Spanish verb, also read `../SPANISH_VERBS.md`. It is the
+authoritative source for normalization, the regular/irregular decision, exact
+card payload, preview, and pre-confirmation revisions.
+
 ```bash
 /home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool fields --model "<chosen model>"
 ```

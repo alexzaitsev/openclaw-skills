@@ -74,9 +74,11 @@ Never offer a control that adds only a subset of the requested cards.
 
 ## Irregular Spanish verb forms
 
-For the Spanish-only irregular-verb workflow, use the forms choice rather than
-audio. When the infinitive is absent, compare the forms-and-infinitive and
-infinitive-only plans, then use:
+For the Spanish-only irregular-verb workflow, first follow
+`SPANISH_VERBS.md`: check every exact Front, prepare its complete required
+card shape, and show every non-duplicate card with Back and Context. Use the
+forms choice rather than audio. When the infinitive is absent, compare the
+forms-and-infinitive and infinitive-only plans, then use:
 
 ```json
 [
@@ -89,8 +91,8 @@ infinitive-only plans, then use:
 ]
 ```
 
-When it exists, say no duplicate will be created, show the edit-and-forms plan,
-and use:
+When the infinitive already exists, say that no duplicate will be created;
+show only the remaining non-duplicate form cards and use:
 
 ```json
 [
@@ -99,7 +101,9 @@ and use:
 ```
 
 Each forms callback executes only its displayed complete plan. Never use this
-workflow outside Spanish or add `vosotros` unless requested.
+workflow outside Spanish or add `vosotros` unless requested. A correction
+before confirmation replaces the draft: run a complete new dry run and send a
+new full preview and button row. Do not execute an earlier callback.
 
 ## Statistics settings
 
