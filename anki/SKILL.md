@@ -53,7 +53,9 @@ are separate. `ANKI_CARD_TYPES.md` selects the model. Read both before every
    new confirmation.
 
 For `edit-batch`, the dry run materializes the reviewed payload privately for
-30 minutes. After confirmation, execute only its reported
+30 minutes. It can change `Front` only through explicit `--note-front NOTE_ID
+FRONT` entries; it rejects Front media and proposed duplicate Fronts. After
+confirmation, execute only its reported
 `edit-batch --execute --execute-stored --plan-id <reviewed-plan-id>` command;
 never reconstruct a long sequence of `--note` arguments. The helper reloads
 the exact payload and rechecks every note before writing.
@@ -81,6 +83,12 @@ still sync to download server-side changes.
   `vosotros` unless requested, and treat `ver` as irregular.
 - Do not infer extra English roles. Until `ANKI_ROLES.md` changes, every English
   card uses `general`; never apply the Spanish irregular-verb workflow to it.
+- For an article audit, use `list-notes --deck Español --role general --state
+  all` and continue only with its printed `next_offset`. Classify only
+  standalone Spanish nouns that lack an article; do not alter phrases, verbs,
+  proper names, or entries that already have an article. Prepare at most one
+  20-note `edit-batch --note-front` dry run at a time, then use the normal
+  Telegram confirmation before every write.
 
 ## Hard boundaries
 
@@ -89,7 +97,9 @@ still sync to download server-side changes.
 - Use `check` for an exact Front lookup and `search` only for literal note
   text. Never pass Anki query syntax such as `is:new` or `tag:` to `search`:
   it intentionally treats that input as text. Use `list-notes` for the
-  reviewed deck/role/state lookup instead.
+  reviewed deck/role/state lookup instead. `list-notes --state new` returns
+  only wholly new notes; `--state all` returns every matching role note,
+  regardless of scheduling state.
 - Do not move, edit, or delete without the mutation protocol. Use
   `delete-note` for an existing card: it deletes the underlying note and every
   card generated from it. Inspect a deck before deletion; never delete a

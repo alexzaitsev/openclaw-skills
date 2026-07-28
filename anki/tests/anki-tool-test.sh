@@ -61,9 +61,9 @@ class Handler(BaseHTTPRequestHandler):
         101: "Español", 102: "Español", 201: "Español",
         301: "Default", 302: "Default",
         401: "Español", 402: "Español", 403: "Español", 404: "Español",
-        405: "Español", 406: "Español",
+        405: "Español", 406: "Español", 407: "Español", 408: "Español",
     }
-    card_notes = {101: 7001, 102: 7002, 201: 7003, 401: 7004, 402: 7004, 403: 7005, 404: 7005, 405: 7006, 406: 7006}
+    card_notes = {101: 7001, 102: 7002, 201: 7003, 401: 7004, 402: 7004, 403: 7005, 404: 7005, 405: 7006, 406: 7006, 407: 7007, 408: 7008}
     note_cards = {}
     next_note_id = 123456789
     next_card_id = 301
@@ -110,7 +110,28 @@ class Handler(BaseHTTPRequestHandler):
                 "Back": {"value": "я пою"},
             },
             "tags": ["deck:verbos"],
-        }
+        },
+        7007: {
+            "fields": {
+                "Front": {"value": "libro"},
+                "Back": {"value": "книга"},
+            },
+            "tags": ["deck:general"],
+        },
+        7008: {
+            "fields": {
+                "Front": {"value": "mano"},
+                "Back": {"value": "рука"},
+            },
+            "tags": ["deck:general"],
+        },
+        7009: {
+            "fields": {
+                "Front": {"value": "la mano"},
+                "Back": {"value": "рука"},
+            },
+            "tags": ["deck:general"],
+        },
     }
 
     def log_message(self, _format, *_args):
@@ -187,7 +208,9 @@ class Handler(BaseHTTPRequestHandler):
             response["result"] = note_id
         elif action == "findNotes":
             query = params["query"]
-            if "yo digo" in query:
+            if "la mano" in query:
+                response["result"] = [7009]
+            elif "yo digo" in query:
                 response["result"] = [7003]
             elif "decir" in query:
                 response["result"] = [7001]
@@ -258,6 +281,8 @@ class Handler(BaseHTTPRequestHandler):
                     # card and one non-new card, so the helper must report it
                     # separately.
                     response["result"] = [401, 402, 403, 405, 406]
+            elif query == 'deck:"Español" tag:deck:general':
+                response["result"] = [407, 408]
             elif "Vacía" in query:
                 response["result"] = []
             elif "adjetivos" in query:
@@ -561,6 +586,16 @@ grep -F "next_offset: 1" "$TMP_DIR/list-new-verbos-page-1.txt" >/dev/null
 grep -F "[2] note_id=7006 canto -> я пою" "$TMP_DIR/list-new-verbos-page-2.txt" >/dev/null
 grep -F "remaining_notes: 0" "$TMP_DIR/list-new-verbos-page-2.txt" >/dev/null
 
+"$ROOT/bin/anki-tool" list-notes --deck Español --role general --state all \
+  > "$TMP_DIR/list-all-general.txt"
+grep -F "role_tag: deck:general" "$TMP_DIR/list-all-general.txt" >/dev/null
+grep -F "state: all" "$TMP_DIR/list-all-general.txt" >/dev/null
+grep -F "matching_cards: 2" "$TMP_DIR/list-all-general.txt" >/dev/null
+grep -F "matching_notes: 2" "$TMP_DIR/list-all-general.txt" >/dev/null
+grep -F "note_id=7007 libro -> книга" "$TMP_DIR/list-all-general.txt" >/dev/null
+grep -F "note_id=7008 mano -> рука" "$TMP_DIR/list-all-general.txt" >/dev/null
+grep -F "excluded_mixed_state_notes: 0" "$TMP_DIR/list-all-general.txt" >/dev/null
+
 "$ROOT/bin/anki-tool" add-basic \
   --deck Español \
   --role general \
@@ -839,9 +874,9 @@ expect_action_increment sync "$SYNC_BEFORE"
   > "$TMP_DIR/edit-batch-dry.txt"
 grep -F "DRY RUN edit-batch" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "notes: 2" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
-grep -F "[1] front: decir (hablar)" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
+grep -F "[1] current_front: decir (hablar)" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[1] proposed_context: англ. hablar" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
-grep -F "[2] front: yo digo" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
+grep -F "[2] current_front: yo digo" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[2] proposed_back: я говорю (speak)" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[1] current_tags: deck:números grammar::verbs source:old source:telegram" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
 grep -F "[1] add_tags: review-later" "$TMP_DIR/edit-batch-dry.txt" >/dev/null
@@ -886,6 +921,37 @@ grep -F "tags=changed-after-plan deck:números grammar::verbs review-later sourc
 grep -F "tags=grammar::verbs review-later source:telegram" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 grep -F "sync: requested" "$TMP_DIR/edit-batch-execute.txt" >/dev/null
 expect_action_increment sync "$SYNC_BEFORE"
+
+"$ROOT/bin/anki-tool" edit-batch --note-front 7007 "el libro" \
+  > "$TMP_DIR/edit-batch-front-dry.txt"
+grep -F "DRY RUN edit-batch" "$TMP_DIR/edit-batch-front-dry.txt" >/dev/null
+grep -F "[1] current_front: libro" "$TMP_DIR/edit-batch-front-dry.txt" >/dev/null
+grep -F "[1] proposed_front: el libro" "$TMP_DIR/edit-batch-front-dry.txt" >/dev/null
+grep -F "[1] changes: Front" "$TMP_DIR/edit-batch-front-dry.txt" >/dev/null
+FRONT_PLAN_ID="$(awk '/^plan_id:/ {print $2}' "$TMP_DIR/edit-batch-front-dry.txt")"
+[[ "$FRONT_PLAN_ID" =~ ^[0-9a-f]{16}$ ]]
+SYNC_BEFORE="$(action_count sync)"
+"$ROOT/bin/anki-tool" edit-batch --execute --execute-stored --plan-id "$FRONT_PLAN_ID" \
+  > "$TMP_DIR/edit-batch-front-execute.txt"
+grep -F "updated_note=7007 front=el libro" "$TMP_DIR/edit-batch-front-execute.txt" >/dev/null
+grep -F "result: updated=1" "$TMP_DIR/edit-batch-front-execute.txt" >/dev/null
+grep -F "sync: requested" "$TMP_DIR/edit-batch-front-execute.txt" >/dev/null
+expect_action_increment sync "$SYNC_BEFORE"
+
+if "$ROOT/bin/anki-tool" edit-batch --note-front 7008 "la mano" \
+  > "$TMP_DIR/edit-batch-front-duplicate.txt" 2>&1; then
+  echo "expected edit-batch to reject a duplicate Front" >&2
+  exit 1
+fi
+grep -F "Proposed Front for note 7008 already exists in note(s): 7009." \
+  "$TMP_DIR/edit-batch-front-duplicate.txt" >/dev/null
+
+if "$ROOT/bin/anki-tool" edit-batch --note-front 7002 "la imagen" \
+  > "$TMP_DIR/edit-batch-front-media.txt" 2>&1; then
+  echo "expected edit-batch to reject Front media edits" >&2
+  exit 1
+fi
+grep -F "Note 7002 has media in Front" "$TMP_DIR/edit-batch-front-media.txt" >/dev/null
 
 if "$ROOT/bin/anki-tool" edit-note \
   --note-id 7002 \

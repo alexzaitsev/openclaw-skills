@@ -44,6 +44,7 @@ EDIT_BATCH_PLAN_DIR = Path(
 )
 EDIT_BATCH_PLAN_FIELDS = (
     "note",
+    "note_front",
     "add_tag",
     "remove_tag",
     "note_add_tag",
@@ -65,7 +66,7 @@ COMMAND_CAPABILITIES = [
     {"name": "add-basic", "mutates": True, "dry_run": True, "fields": ["LanguageDeck", "StudyRole", "Front", "Back", "Context", "image from staging", "model extras"]},
     {"name": "add-batch", "mutates": True, "dry_run": True, "fields": ["LanguageDeck", "StudyRole", "Front", "Back", "Context", "model extras"]},
     {"name": "edit-note", "mutates": True, "dry_run": True, "fields": ["Front", "Back", "Context", "tags"]},
-    {"name": "edit-batch", "mutates": True, "dry_run": True, "fields": ["Back", "Context", "tags"]},
+    {"name": "edit-batch", "mutates": True, "dry_run": True, "fields": ["Front", "Back", "Context", "tags"]},
     {"name": "move-note", "mutates": True, "dry_run": True, "fields": []},
 ]
 
@@ -942,8 +943,8 @@ def cmd_list_notes(args: argparse.Namespace) -> int:
     state = args.state.strip()
     if not deck or not role:
         raise UserFacingError("--deck and --role are required.")
-    if state != "new":
-        raise UserFacingError("Only --state new is supported.")
+    if state not in {"new", "all"}:
+        raise UserFacingError("--state must be either new or all.")
     if args.offset < 0:
         raise UserFacingError("--offset must not be negative.")
     if not 1 <= args.limit <= LIST_NOTES_MAX_LIMIT:
@@ -953,7 +954,11 @@ def cmd_list_notes(args: argparse.Namespace) -> int:
     require_decks([deck])
 
     role_tag = deck_role_tag(role)
-    query = f"{quote_deck_query(deck)} is:new tag:{role_tag}"
+    query_parts = [quote_deck_query(deck)]
+    if state == "new":
+        query_parts.append("is:new")
+    query_parts.append(f"tag:{role_tag}")
+    query = " ".join(query_parts)
     matching_cards = invoke("findCards", query=query)
     if not isinstance(matching_cards, list):
         raise UserFacingError("AnkiConnect returned an invalid card list.")
@@ -983,7 +988,7 @@ def cmd_list_notes(args: argparse.Namespace) -> int:
                 f"Note {note_id} has cards outside deck {deck}; inspect it manually before changing it."
             )
         matched_ids = matching_by_note[note_id]
-        if set(all_card_ids) != matched_ids:
+        if state == "new" and set(all_card_ids) != matched_ids:
             mixed.append((note_id, len(matched_ids), len(all_card_ids)))
             continue
         note = note_info(note_id)
@@ -998,7 +1003,7 @@ def cmd_list_notes(args: argparse.Namespace) -> int:
     print(f"deck: {deck}")
     print(f"role: {role}")
     print(f"role_tag: {role_tag}")
-    print("state: new")
+    print(f"state: {state}")
     print(f"matching_cards: {len(matching_card_ids)}")
     print(f"matching_notes: {len(included)}")
     print(f"offset: {args.offset}")
@@ -1157,13 +1162,15 @@ def cmd_edit_note(args: argparse.Namespace) -> int:
 
 
 def cmd_edit_batch(args: argparse.Namespace) -> int:
-    """Dry-run or apply coordinated Back/context edits to existing notes."""
+    """Dry-run or apply coordinated text and tag edits to existing notes."""
     if args.execute_stored:
         if not args.execute:
             raise UserFacingError("--execute-stored requires --execute.")
         restore_edit_batch_plan_args(args)
-    if not args.note:
-        raise UserFacingError("At least one --note is required for an edit-batch dry run.")
+    if not args.note and not args.note_front:
+        raise UserFacingError(
+            "Provide at least one --note or --note-front for an edit-batch dry run."
+        )
     global_add_tags = normalize_tags(args.add_tag)
     global_remove_tags = normalize_tags(args.remove_tag)
     per_note_add_tags: dict[int, list[str]] = {}
@@ -1185,8 +1192,9 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
     collect_note_tags(args.note_add_tag, per_note_add_tags, "--note-add-tag")
     collect_note_tags(args.note_remove_tag, per_note_remove_tags, "--note-remove-tag")
 
-    plans: list[dict[str, Any]] = []
-    seen_ids: set[int] = set()
+    back_updates: dict[int, tuple[str, bool, str | None]] = {}
+    front_updates: dict[int, str] = {}
+    ordered_note_ids: list[int] = []
     for index, raw_note in enumerate(args.note, 1):
         if len(raw_note) not in (2, 3):
             raise UserFacingError(
@@ -1199,10 +1207,8 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
             raise UserFacingError(
                 f"Batch edit #{index} NOTE_ID must be an integer."
             ) from exc
-        if note_id in seen_ids:
+        if note_id in back_updates:
             raise UserFacingError(f"Batch edit supplies note {note_id} more than once.")
-        seen_ids.add(note_id)
-
         back_argument = raw_back.strip()
         if back_argument != "=" and not back_argument:
             raise UserFacingError(
@@ -1212,7 +1218,31 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         context_argument = optional_context[0].strip() if context_supplied else None
         if context_argument == "=":
             context_supplied = False
+        back_updates[note_id] = (back_argument, context_supplied, context_argument)
+        ordered_note_ids.append(note_id)
 
+    for index, raw_note_front in enumerate(args.note_front, 1):
+        raw_id, raw_front = raw_note_front
+        try:
+            note_id = int(raw_id)
+        except ValueError as exc:
+            raise UserFacingError(
+                f"--note-front #{index} NOTE_ID must be an integer."
+            ) from exc
+        if note_id in front_updates:
+            raise UserFacingError(f"--note-front supplies note {note_id} more than once.")
+        front = raw_front.strip()
+        if not front:
+            raise UserFacingError(f"--note-front #{index} FRONT must be non-empty.")
+        front_updates[note_id] = front
+        if note_id not in back_updates:
+            ordered_note_ids.append(note_id)
+
+    plans: list[dict[str, Any]] = []
+    for note_id in ordered_note_ids:
+        back_argument, context_supplied, context_argument = back_updates.get(
+            note_id, ("=", False, None)
+        )
         note = note_info(note_id)
         current_front_html = note_field_value(note, "Front", note_id)
         current_back_html = note_field_value(note, "Back", note_id)
@@ -1230,10 +1260,15 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         add_tags, remove_tags, proposed_tags = plan_tag_changes(
             current_tags, requested_add_tags, requested_remove_tags
         )
+        proposed_front = front_updates.get(note_id, current_front)
         proposed_back = current_back if back_argument == "=" else back_argument
         proposed_context = (
             (context_argument or None) if context_supplied else current_context
         )
+        if proposed_front != current_front and contains_media(current_front_html):
+            raise UserFacingError(
+                f"Note {note_id} has media in Front; text editing it is not supported yet."
+            )
         if (back_argument != "=" or context_supplied) and contains_media(current_back_html):
             raise UserFacingError(
                 f"Note {note_id} has media in Back; text/context editing it is not supported yet."
@@ -1241,10 +1276,10 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
 
         updates = build_text_updates(
             content,
-            front=current_front,
+            front=proposed_front,
             back=proposed_back,
             context=proposed_context,
-            change_front=False,
+            change_front=proposed_front != current_front,
             change_back_or_context=(
                 proposed_back != current_back or proposed_context != current_context
             ),
@@ -1252,7 +1287,8 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         plans.append(
             {
                 "note_id": note_id,
-                "front": current_front,
+                "current_front": current_front,
+                "proposed_front": proposed_front,
                 "current_back": current_back,
                 "proposed_back": proposed_back,
                 "current_context": current_context,
@@ -1265,15 +1301,58 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
             }
         )
 
+    known_note_ids = set(ordered_note_ids)
     unknown_tag_note_ids = (
         set(per_note_add_tags) | set(per_note_remove_tags)
-    ) - seen_ids
+    ) - known_note_ids
     if unknown_tag_note_ids:
         raise UserFacingError(
             "Per-note tag options reference note(s) not in this batch: "
             + ", ".join(str(note_id) for note_id in sorted(unknown_tag_note_ids))
             + "."
         )
+
+    planned_fronts: dict[str, int] = {}
+    for plan in plans:
+        if plan["proposed_front"] == plan["current_front"]:
+            continue
+        front_key = unicodedata.normalize(
+            "NFC", plain_text(plan["proposed_front"])
+        ).casefold()
+        duplicate_note_id = planned_fronts.get(front_key)
+        if duplicate_note_id is not None:
+            raise UserFacingError(
+                f"Proposed Front for note {plan['note_id']} duplicates note {duplicate_note_id} in this batch."
+            )
+        planned_fronts[front_key] = plan["note_id"]
+
+        candidate_ids = invoke(
+            "findNotes",
+            query=f'front:"{quote_search_value(plan["proposed_front"])}"',
+        )
+        if not isinstance(candidate_ids, list):
+            raise UserFacingError("AnkiConnect returned an invalid duplicate lookup.")
+        candidate_note_ids = [int(candidate_id) for candidate_id in candidate_ids]
+        candidates = invoke("notesInfo", notes=candidate_note_ids) if candidate_note_ids else []
+        if not isinstance(candidates, list) or len(candidates) != len(candidate_note_ids):
+            raise UserFacingError("AnkiConnect returned invalid duplicate note data.")
+        duplicates = []
+        expected_front = plain_text(plan["proposed_front"])
+        for candidate_note_id, candidate in zip(candidate_note_ids, candidates):
+            if not isinstance(candidate, dict):
+                raise UserFacingError("AnkiConnect returned an invalid duplicate note.")
+            if candidate_note_id == plan["note_id"]:
+                continue
+            candidate_content = read_note_content(candidate, candidate_note_id)
+            if plain_text(str(candidate_content["front"])) == expected_front:
+                duplicates.append(candidate_note_id)
+        if duplicates:
+            raise UserFacingError(
+                f"Proposed Front for note {plan['note_id']} already exists in note(s): "
+                + ", ".join(str(note_id) for note_id in duplicates)
+                + "."
+            )
+
     if not any(
         plan["updates"] or plan["add_tags"] or plan["remove_tags"] for plan in plans
     ):
@@ -1282,7 +1361,8 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
     plan_fingerprint = [
         {
             "note_id": plan["note_id"],
-            "front": plan["front"],
+            "current_front": plan["current_front"],
+            "proposed_front": plan["proposed_front"],
             "current_back": plan["current_back"],
             "proposed_back": plan["proposed_back"],
             "current_context": plan["current_context"],
@@ -1309,7 +1389,8 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
     print(f"notes: {len(plans)}")
     for index, plan in enumerate(plans, 1):
         print(f"[{index}] note_id: {plan['note_id']}")
-        print(f"[{index}] front: {plan['front']}")
+        print(f"[{index}] current_front: {plan['current_front']}")
+        print(f"[{index}] proposed_front: {plan['proposed_front']}")
         print(f"[{index}] current_back: {plan['current_back']}")
         print(f"[{index}] proposed_back: {plan['proposed_back']}")
         print(f"[{index}] current_context: {plan['current_context'] or '<none>'}")
@@ -1319,7 +1400,11 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
         print(f"[{index}] remove_tags: {format_tags(plan['remove_tags'])}")
         print(f"[{index}] proposed_tags: {format_tags(plan['proposed_tags'])}")
         changes = []
-        if plan["updates"]:
+        if plan["proposed_front"] != plan["current_front"]:
+            changes.append("Front")
+        if plan["proposed_back"] != plan["current_back"] or (
+            plan["proposed_context"] != plan["current_context"]
+        ):
             changes.append("Back")
         if plan["add_tags"] or plan["remove_tags"]:
             changes.append("tags")
@@ -1345,10 +1430,12 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
             invoke("removeTags", notes=[note_id], tags=" ".join(plan["remove_tags"]))
         verified = note_info(note_id)
         verified_content = read_note_content(verified, note_id)
+        verified_front = str(verified_content["front"])
         verified_back = str(verified_content["back"])
         verified_context = verified_content["context"]
         if (
-            verified_back != plan["proposed_back"]
+            verified_front != plan["proposed_front"]
+            or verified_back != plan["proposed_back"]
             or verified_context != plan["proposed_context"]
         ):
             raise UserFacingError(
@@ -1361,7 +1448,7 @@ def cmd_edit_batch(args: argparse.Namespace) -> int:
             )
         updated_ids.append(note_id)
         print(
-            f"updated_note={note_id} front={plan['front']} "
+            f"updated_note={note_id} front={verified_front} "
             f"back={verified_back} context={verified_context or '<none>'} "
             f"tags={format_tags(verified_tags)}"
         )
@@ -2032,7 +2119,7 @@ def build_parser() -> argparse.ArgumentParser:
     list_notes = subparsers.add_parser("list-notes")
     list_notes.add_argument("--deck", required=True)
     list_notes.add_argument("--role", required=True)
-    list_notes.add_argument("--state", required=True, choices=["new"])
+    list_notes.add_argument("--state", required=True, choices=["new", "all"])
     list_notes.add_argument("--offset", type=int, default=0)
     list_notes.add_argument("--limit", type=int, default=LIST_NOTES_DEFAULT_LIMIT)
     list_notes.set_defaults(func=cmd_list_notes)
@@ -2054,6 +2141,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         nargs="+",
         metavar="VALUE",
+        default=[],
+    )
+    edit_batch.add_argument(
+        "--note-front",
+        action="append",
+        nargs=2,
+        metavar=("NOTE_ID", "FRONT"),
         default=[],
     )
     edit_batch.add_argument("--add-tag", action="append", default=[])

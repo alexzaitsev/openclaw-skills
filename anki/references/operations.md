@@ -44,9 +44,18 @@ It constructs the fixed Anki filter itself, returns only notes whose generated
 cards are all new, and reports mixed-state notes separately. Results are
 paginated: it shows 20 notes by default and prints `next_offset` when more
 remain. Use `--offset <next_offset>` (and at most `--limit 50`) for another
-page. It is read-only; classifying a returned form as regular or irregular
-remains a conversational decision. Never delete a candidate without the usual
-note-deletion dry run and later explicit confirmation.
+page. To inspect every note for a reviewed role regardless of scheduling state,
+use `--state all` instead:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool list-notes --deck Español --role general --state all
+```
+
+Both modes are read-only; `all` does not accept an arbitrary Anki filter. For a
+Spanish article audit, classify only standalone nouns that lack an article and
+use no more than the displayed page in one correction batch. Never delete a
+candidate without the usual note-deletion dry run and later explicit
+confirmation.
 
 ```bash
 /home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool sync
@@ -135,9 +144,16 @@ fails rather than risking lost media.
 
 Use `edit-batch` whenever one request affects multiple existing notes. Each
 `--note` is `NOTE_ID BACK [CONTEXT]`; use `=` to retain back or context and
-`""` to clear context. Global tag deltas use `--add-tag` / `--remove-tag`; one
-note uses `--note-add-tag NOTE_ID TAG` / `--note-remove-tag NOTE_ID TAG`.
-Unrelated tags are preserved. The dry run prints an `execute_command`. After
-the later confirmation, invoke that exact stored-plan command rather than
-retyping the `--note` payload; it expires after 30 minutes and revalidates all
-current note state before any write.
+`""` to clear context. To alter a Front, add a separate explicit entry:
+
+```bash
+/home/claw/.openclaw/workspaces/anki/skills/anki/bin/anki-tool edit-batch --note-front 123456789 "la palabra" --note-front 123456790 "el libro"
+```
+
+Front edits reject media and a proposed Front that would duplicate another
+note. Global tag deltas use `--add-tag` / `--remove-tag`; one note uses
+`--note-add-tag NOTE_ID TAG` / `--note-remove-tag NOTE_ID TAG`. Unrelated tags
+are preserved. The dry run prints an `execute_command`. After the later
+confirmation, invoke that exact stored-plan command rather than retyping the
+payload; it expires after 30 minutes and revalidates all current note state
+before any write.
