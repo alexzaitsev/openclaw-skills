@@ -93,7 +93,7 @@ def _report_duration(milliseconds: int) -> str:
 
 
 def _aligned(label: str, value: int | str) -> str:
-    return f"{label:<12}{value}"
+    return f"{label:<12}\t{value}"
 
 
 def _percent(value: int, total: int) -> int:

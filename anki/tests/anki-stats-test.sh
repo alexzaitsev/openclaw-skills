@@ -127,14 +127,14 @@ grep -F "**Сегодня · пн 20 июля**" "$TMP_DIR/preview.txt" >/dev/nu
 if grep -F "Отчёт за" "$TMP_DIR/preview.txt" >/dev/null; then
   exit 1
 fi
-grep -F "Повторено:  0" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "Новых:     2" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "Время:      0 мин" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "Повторить:  63" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "Не начато:  0% (0)" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "Изучается:  50% (2)" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "Закреплено: 50% (2)" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "Новых на:   0 дней вперед" "$TMP_DIR/preview.txt" >/dev/null
+grep -F $'Повторено:  \t0' "$TMP_DIR/preview.txt" >/dev/null
+grep -F $'Новых:      \t2' "$TMP_DIR/preview.txt" >/dev/null
+grep -F $'Время:      \t0 мин' "$TMP_DIR/preview.txt" >/dev/null
+grep -F $'Повторить:  \t63' "$TMP_DIR/preview.txt" >/dev/null
+grep -F $'Не начато:  \t0% (0)' "$TMP_DIR/preview.txt" >/dev/null
+grep -F $'Изучается:  \t50% (2)' "$TMP_DIR/preview.txt" >/dev/null
+grep -F $'Закреплено: \t50% (2)' "$TMP_DIR/preview.txt" >/dev/null
+grep -F $'Новых на:   \t0 дней вперед' "$TMP_DIR/preview.txt" >/dev/null
 if grep -E 'Доступно сейчас|карточек|неделей ранее|Последние 7 дней|Запоминание|\|\|' "$TMP_DIR/preview.txt" >/dev/null; then
   exit 1
 fi
