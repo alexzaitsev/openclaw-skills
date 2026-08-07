@@ -37,43 +37,31 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
         f"**{flag} {label} · {deck}**",
         "",
         f"**Вчера · {_display_date(report_date)}**",
-        _code_block(
-            [
-                _aligned("Повторено:", yesterday["review_cards"]),
-                _aligned("Новых:", yesterday["new_cards"]),
-                _aligned("Время:", _report_duration(yesterday["duration_ms"])),
-            ]
-        ),
+        _aligned("Повторено:", yesterday["review_cards"]),
+        _aligned("Новых:", yesterday["new_cards"]),
+        _aligned("Время:", _report_duration(yesterday["duration_ms"])),
         "",
         f"**Сегодня · {_display_date(run_date)}**",
-        _code_block(
-            [
-                _aligned("Повторить:", state["due_review"]),
-                _aligned("Новых:", state["due_new"]),
-            ]
-        ),
+        _aligned("Повторить:", state["due_review"]),
+        _aligned("Новых:", state["due_new"]),
         "",
         "**Прогресс**",
-        _code_block(
-            [
-                _aligned(
-                    "Не начато:",
-                    f"{_percent(state['unstarted_cards'], state['cards'])}% "
-                    f"({state['unstarted_cards']})",
-                ),
-                _aligned(
-                    "Изучается:",
-                    f"{_percent(state['studying_cards'], state['cards'])}% "
-                    f"({state['studying_cards']})",
-                ),
-                _aligned(
-                    "Закреплено:",
-                    f"{_percent(state['mature_cards'], state['cards'])}% "
-                    f"({state['mature_cards']})",
-                ),
-                _aligned("Новых на:", _days_ahead(new_days)),
-            ]
+        _aligned(
+            "Не начато:",
+            f"{_percent(state['unstarted_cards'], state['cards'])}% "
+            f"({state['unstarted_cards']})",
         ),
+        _aligned(
+            "Изучается:",
+            f"{_percent(state['studying_cards'], state['cards'])}% "
+            f"({state['studying_cards']})",
+        ),
+        _aligned(
+            "Закреплено:",
+            f"{_percent(state['mature_cards'], state['cards'])}% "
+            f"({state['mature_cards']})",
+        ),
+        _aligned("Новых на:", _days_ahead(new_days)),
     ]
     return "\n".join(lines)
 
@@ -106,10 +94,6 @@ def _report_duration(milliseconds: int) -> str:
 
 def _aligned(label: str, value: int | str) -> str:
     return f"{label:<12}{value}"
-
-
-def _code_block(lines: list[str]) -> str:
-    return "```\n" + "\n".join(lines) + "\n```"
 
 
 def _percent(value: int, total: int) -> int:
