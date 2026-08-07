@@ -125,25 +125,20 @@ class StatisticsTest(unittest.TestCase):
         self.assertEqual(
             report,
             "**🇪🇸 Испанский · Español**\n\n"
-            "**Вчера · вс 19 июля**\n"
-            "| Показатель | Значение |\n"
-            "| :-- | --: |\n"
-            "| Повторено | 0 |\n"
-            "| Новых | 1 |\n"
-            "| Время | 0 мин |\n\n"
-            "**Сегодня · пн 20 июля**\n"
-            "| Показатель | Значение |\n"
-            "| :-- | --: |\n"
-            "| Повторить | 2 |\n"
-            "| Новых | 1 |\n\n"
+            "**Сегодня: пн 20 июля**\n"
+            "<table bordered striped><tbody><tr><td>Повторить</td>"
+            "<td align=\"right\">2</td></tr><tr><td>Новых</td>"
+            "<td align=\"right\">1</td></tr></tbody></table>\n\n"
             "**Прогресс**\n"
-            "| Показатель | Значение |\n"
-            "| :-- | --: |\n"
-            "| Не начато | 50% (1) |\n"
-            "| Изучается | 50% (1) |\n"
-            "| Закреплено | 0% (0) |\n"
-            "| Новых на | 1 день вперед |",
+            "<table bordered striped><tbody><tr><td>Не начато</td>"
+            "<td align=\"right\">50% (1)</td></tr><tr><td>Изучается</td>"
+            "<td align=\"right\">50% (1)</td></tr><tr><td>Закреплено</td>"
+            "<td align=\"right\">0% (0)</td></tr><tr><td>Новых на</td>"
+            "<td align=\"right\">1 день</td></tr></tbody></table>",
         )
+        self.assertNotIn("Вчера", report)
+        self.assertNotIn("Показатель", report)
+        self.assertNotIn("вперед", report)
         self.assertNotIn("```", report)
         self.assertNotIn("||", report)
         self.assertNotIn("Последние 7 дней", report)

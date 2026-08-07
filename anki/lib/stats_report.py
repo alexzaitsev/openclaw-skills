@@ -31,21 +31,11 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
     flag, label = DECK_LABELS[deck]
     report_date = date.fromisoformat(history["report_date"])
     run_date = report_date + timedelta(days=1)
-    yesterday = history["yesterday"]
     new_days = _new_days(state["unstarted_cards"], state["due_new"])
     lines = [
         f"**{flag} {label} · {deck}**",
         "",
-        f"**Вчера · {_display_date(report_date)}**",
-        *_table(
-            (
-                ("Повторено", yesterday["review_cards"]),
-                ("Новых", yesterday["new_cards"]),
-                ("Время", _report_duration(yesterday["duration_ms"])),
-            )
-        ),
-        "",
-        f"**Сегодня · {_display_date(run_date)}**",
+        f"**Сегодня: {_display_date(run_date)}**",
         *_table(
             (
                 ("Повторить", state["due_review"]),
@@ -105,12 +95,12 @@ def _report_duration(milliseconds: int) -> str:
 
 
 def _table(rows: tuple[tuple[str, int | str], ...]) -> tuple[str, ...]:
-    """Render a native Telegram table when Rich Messages are enabled."""
-    return (
-        "| Показатель | Значение |",
-        "| :-- | --: |",
-        *(f"| {label} | {value} |" for label, value in rows),
+    """Render a headerless native Telegram table when Rich Messages are enabled."""
+    body = "".join(
+        f'<tr><td>{label}</td><td align="right">{value}</td></tr>'
+        for label, value in rows
     )
+    return (f"<table bordered striped><tbody>{body}</tbody></table>",)
 
 
 def _percent(value: int, total: int) -> int:
@@ -126,7 +116,7 @@ def _new_days(unstarted_cards: int, new_per_day: int) -> int | None:
 def _days_ahead(value: int | None) -> str:
     if value is None:
         return "—"
-    return f"{value} {_count(value, 'день', 'дня', 'дней').split(' ', 1)[1]} вперед"
+    return _count(value, "день", "дня", "дней")
 
 
 def _display_date(value: date) -> str:
