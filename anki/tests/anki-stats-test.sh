@@ -127,7 +127,7 @@ grep -F "Сегодня · пн 20 июля" "$TMP_DIR/preview.txt" >/dev/null
 if grep -F "Отчёт за" "$TMP_DIR/preview.txt" >/dev/null; then
   exit 1
 fi
-grep -F "2 элемента · 2 новых · 6 с" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "1 элемент · 2 новых · 6 с" "$TMP_DIR/preview.txt" >/dev/null
 grep -F "Отвечено: 67%" "$TMP_DIR/preview.txt" >/dev/null
 grep -F "2 элемента · 1 начато · 1 закреплён" "$TMP_DIR/preview.txt" >/dev/null
 grep -F "63 к повторению · 12 новых" "$TMP_DIR/preview.txt" >/dev/null

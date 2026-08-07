@@ -24,7 +24,10 @@ def history_start_id(timezone: str, now: datetime | None = None) -> int:
 
 
 def calculate_history(
-    rows: Iterable[object], timezone: str, now: datetime | None = None
+    rows: Iterable[object],
+    timezone: str,
+    now: datetime | None = None,
+    card_notes: dict[int, int] | None = None,
 ) -> dict[str, Any]:
     """Aggregate Anki review-log rows into yesterday and two seven-day windows."""
     tz = ZoneInfo(timezone)
@@ -59,6 +62,7 @@ def calculate_history(
                 {
                     "timestamp_ms": timestamp_ms,
                     "card_id": card_id,
+                    "note_id": (card_notes or {}).get(card_id),
                     "rating": rating,
                     "duration_ms": duration_ms,
                     "review_type": review_type,
@@ -159,6 +163,14 @@ def _period(events: list[dict[str, Any]], dates: set[date]) -> dict[str, Any]:
     return {
         "answers": answers,
         "unique_cards": len({event["card_id"] for event in selected}),
+        "unique_items": len(
+            {
+                event["note_id"]
+                if event["note_id"] is not None
+                else event["card_id"]
+                for event in selected
+            }
+        ),
         "new_cards": len(
             {event["card_id"] for event in selected if event["review_type"] == 0}
         ),

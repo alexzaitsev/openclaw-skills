@@ -32,7 +32,7 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
     run_date = report_date + timedelta(days=1)
     yesterday = history["yesterday"]
     yesterday_items = _count(
-        yesterday["unique_cards"],
+        yesterday["unique_items"],
         "элемент",
         "элемента",
         "элементов",

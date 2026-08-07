@@ -49,10 +49,11 @@ class StatisticsTest(unittest.TestCase):
             review("2026-07-13T08:00:00", 4, 3, 4000),
             review("2026-07-12T08:00:00", 5, 1, 5000),
         ]
-        result = calculate_history(rows, "America/Edmonton", NOW)
+        result = calculate_history(rows, "America/Edmonton", NOW, {1: 10, 2: 11})
         yesterday = result["yesterday"]
         self.assertEqual(yesterday["answers"], 3)
         self.assertEqual(yesterday["unique_cards"], 2)
+        self.assertEqual(yesterday["unique_items"], 2)
         self.assertEqual(yesterday["new_cards"], 0)
         self.assertEqual(yesterday["duration_ms"], 6000)
         self.assertEqual(yesterday["again"], 1)
