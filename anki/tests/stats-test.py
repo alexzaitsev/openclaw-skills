@@ -124,11 +124,11 @@ class StatisticsTest(unittest.TestCase):
         report = render_report("Español", history, state)
         self.assertEqual(
             report,
-            "🇪🇸 Испанский · Español\n\n"
-            "Вчера · вс 19 июля\n"
+            "**🇪🇸 Испанский · Español**\n\n"
+            "**Вчера · вс 19 июля**\n"
             "0 к повторению · 1 новый · 1 с\n"
             "Отвечено: 1 из 1\n\n"
-            "Сегодня · пн 20 июля\n"
+            "**Сегодня · пн 20 июля**\n"
             "1 не начато · 1 в изучении · 0 закреплено\n"
             "2 к повторению · 1 новых",
         )

@@ -33,16 +33,16 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
     yesterday = history["yesterday"]
     yesterday_new = _count(yesterday["new_cards"], "новый", "новых", "новых")
     lines = [
-        f"{flag} {label} · {deck}",
+        f"**{flag} {label} · {deck}**",
         "",
-        f"Вчера · {_display_date(report_date)}",
+        f"**Вчера · {_display_date(report_date)}**",
         (
             f"{yesterday['review_cards']} к повторению · {yesterday_new} · "
             f"{format_duration(yesterday['duration_ms'])}"
         ),
         f"Отвечено: {yesterday['final_card_passes']} из {yesterday['unique_cards']}",
         "",
-        f"Сегодня · {_display_date(run_date)}",
+        f"**Сегодня · {_display_date(run_date)}**",
         (
             f"{state['unstarted_cards']} не начато · "
             f"{state['studying_cards']} в изучении · "

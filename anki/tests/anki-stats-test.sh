@@ -121,9 +121,9 @@ grep -F '"declaration_key": "anki-stats:espanol"' "$TMP_DIR/settings.json" >/dev
 grep -F '"enabled": false' "$TMP_DIR/settings.json" >/dev/null
 
 "$ROOT/bin/anki-stats" preview --deck Español > "$TMP_DIR/preview.txt"
-grep -F "🇪🇸 Испанский · Español" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "Вчера · вс 19 июля" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "Сегодня · пн 20 июля" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "**🇪🇸 Испанский · Español**" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "**Вчера · вс 19 июля**" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "**Сегодня · пн 20 июля**" "$TMP_DIR/preview.txt" >/dev/null
 if grep -F "Отчёт за" "$TMP_DIR/preview.txt" >/dev/null; then
   exit 1
 fi
@@ -136,7 +136,7 @@ if grep -E 'Доступно сейчас|карточек|неделей ран
 fi
 
 "$ROOT/bin/anki-stats-worker" --deck Español > "$TMP_DIR/worker.txt"
-grep -F "🇪🇸 Испанский · Español" "$TMP_DIR/worker.txt" >/dev/null
+grep -F "**🇪🇸 Испанский · Español**" "$TMP_DIR/worker.txt" >/dev/null
 [[ "$(grep -c '^sync$' "$TMP_DIR/actions.log")" -eq 1 ]]
 
 "$ROOT/bin/anki-stats" configure \
