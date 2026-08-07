@@ -95,12 +95,12 @@ def _report_duration(milliseconds: int) -> str:
 
 
 def _table(rows: tuple[tuple[str, int | str], ...]) -> tuple[str, ...]:
-    """Render a headerless native Telegram table when Rich Messages are enabled."""
-    body = "".join(
-        f'<tr><td>{label}</td><td align="right">{value}</td></tr>'
-        for label, value in rows
+    """Render a native Telegram table with a visually blank technical header."""
+    return (
+        "| \u200b | \u200b |",
+        "| :-- | --: |",
+        *(f"| {label} | {value} |" for label, value in rows),
     )
-    return (f"<table bordered striped><tbody>{body}</tbody></table>",)
 
 
 def _percent(value: int, total: int) -> int:

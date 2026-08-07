@@ -126,15 +126,17 @@ class StatisticsTest(unittest.TestCase):
             report,
             "**🇪🇸 Испанский · Español**\n\n"
             "**Сегодня: пн 20 июля**\n"
-            "<table bordered striped><tbody><tr><td>Повторить</td>"
-            "<td align=\"right\">2</td></tr><tr><td>Новых</td>"
-            "<td align=\"right\">1</td></tr></tbody></table>\n\n"
+            "| \u200b | \u200b |\n"
+            "| :-- | --: |\n"
+            "| Повторить | 2 |\n"
+            "| Новых | 1 |\n\n"
             "**Прогресс**\n"
-            "<table bordered striped><tbody><tr><td>Не начато</td>"
-            "<td align=\"right\">50% (1)</td></tr><tr><td>Изучается</td>"
-            "<td align=\"right\">50% (1)</td></tr><tr><td>Закреплено</td>"
-            "<td align=\"right\">0% (0)</td></tr><tr><td>Новых на</td>"
-            "<td align=\"right\">1 день</td></tr></tbody></table>",
+            "| \u200b | \u200b |\n"
+            "| :-- | --: |\n"
+            "| Не начато | 50% (1) |\n"
+            "| Изучается | 50% (1) |\n"
+            "| Закреплено | 0% (0) |\n"
+            "| Новых на | 1 день |",
         )
         self.assertNotIn("Вчера", report)
         self.assertNotIn("Показатель", report)
