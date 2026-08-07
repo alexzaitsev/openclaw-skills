@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import date, timedelta
 from typing import Any
 
@@ -31,24 +32,48 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
     report_date = date.fromisoformat(history["report_date"])
     run_date = report_date + timedelta(days=1)
     yesterday = history["yesterday"]
-    yesterday_new = _count(yesterday["new_cards"], "новый", "новых", "новых")
+    new_days = _new_days(state["unstarted_cards"], state["due_new"])
     lines = [
         f"**{flag} {label} · {deck}**",
         "",
         f"**Вчера · {_display_date(report_date)}**",
-        (
-            f"{yesterday['review_cards']} к повторению · {yesterday_new} · "
-            f"{format_duration(yesterday['duration_ms'])}"
+        _code_block(
+            [
+                _aligned("Повторено:", yesterday["review_cards"]),
+                _aligned("Новых:", yesterday["new_cards"]),
+                _aligned("Время:", _report_duration(yesterday["duration_ms"])),
+            ]
         ),
-        f"Отвечено: {yesterday['final_card_passes']} из {yesterday['unique_cards']}",
         "",
         f"**Сегодня · {_display_date(run_date)}**",
-        (
-            f"{state['unstarted_cards']} не начато · "
-            f"{state['studying_cards']} в изучении · "
-            f"{state['mature_cards']} {_mature_word(state['mature_cards'])}"
+        _code_block(
+            [
+                _aligned("Повторить:", state["due_review"]),
+                _aligned("Новых:", state["due_new"]),
+            ]
         ),
-        f"{state['due_review']} к повторению · {state['due_new']} новых",
+        "",
+        "**Прогресс**",
+        _code_block(
+            [
+                _aligned(
+                    "Не начато:",
+                    f"{_percent(state['unstarted_cards'], state['cards'])}% "
+                    f"({state['unstarted_cards']})",
+                ),
+                _aligned(
+                    "Изучается:",
+                    f"{_percent(state['studying_cards'], state['cards'])}% "
+                    f"({state['studying_cards']})",
+                ),
+                _aligned(
+                    "Закреплено:",
+                    f"{_percent(state['mature_cards'], state['cards'])}% "
+                    f"({state['mature_cards']})",
+                ),
+                _aligned("Новых на:", _days_ahead(new_days)),
+            ]
+        ),
     ]
     return "\n".join(lines)
 
@@ -72,6 +97,35 @@ def format_duration(milliseconds: int) -> str:
 
 def format_percent(value: float | None) -> str:
     return "—" if value is None else f"{round(value * 100)}%"
+
+
+def _report_duration(milliseconds: int) -> str:
+    """Render report study time as completed whole minutes."""
+    return f"{max(0, milliseconds // 60_000)} мин"
+
+
+def _aligned(label: str, value: int | str) -> str:
+    return f"{label:<12}{value}"
+
+
+def _code_block(lines: list[str]) -> str:
+    return "```\n" + "\n".join(lines) + "\n```"
+
+
+def _percent(value: int, total: int) -> int:
+    return round(value * 100 / total) if total else 0
+
+
+def _new_days(unstarted_cards: int, new_per_day: int) -> int | None:
+    if new_per_day <= 0:
+        return None
+    return math.ceil(max(0, unstarted_cards) / new_per_day)
+
+
+def _days_ahead(value: int | None) -> str:
+    if value is None:
+        return "—"
+    return f"{value} {_count(value, 'день', 'дня', 'дней').split(' ', 1)[1]} вперед"
 
 
 def _display_date(value: date) -> str:
