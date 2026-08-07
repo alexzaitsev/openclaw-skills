@@ -31,30 +31,22 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
     report_date = date.fromisoformat(history["report_date"])
     run_date = report_date + timedelta(days=1)
     yesterday = history["yesterday"]
-    yesterday_items = _count(
-        yesterday["unique_items"],
-        "элемент",
-        "элемента",
-        "элементов",
-    )
     yesterday_new = _count(yesterday["new_cards"], "новый", "новых", "новых")
-    learning_items = _count(
-        state["learning_items"], "элемент", "элемента", "элементов"
-    )
     lines = [
         f"{flag} {label} · {deck}",
         "",
         f"Вчера · {_display_date(report_date)}",
         (
-            f"{yesterday_items} · {yesterday_new} · "
+            f"{yesterday['review_cards']} к повторению · {yesterday_new} · "
             f"{format_duration(yesterday['duration_ms'])}"
         ),
-        f"Отвечено: {format_percent(yesterday['answer_pass_rate'])}",
+        f"Отвечено: {yesterday['final_card_passes']} из {yesterday['unique_cards']}",
         "",
         f"Сегодня · {_display_date(run_date)}",
         (
-            f"{learning_items} · {state['introduced_items']} начато · "
-            f"{state['mature_items']} {_mature_word(state['mature_items'])}"
+            f"{state['unstarted_cards']} не начато · "
+            f"{state['studying_cards']} в изучении · "
+            f"{state['mature_cards']} {_mature_word(state['mature_cards'])}"
         ),
         f"{state['due_review']} к повторению · {state['due_new']} новых",
     ]

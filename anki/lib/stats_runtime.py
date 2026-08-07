@@ -55,12 +55,7 @@ def collect_report(
         cards.extend(result)
 
     deck_stats = invoke("getDeckStats", decks=[deck])
-    card_notes = {
-        int(card["cardId"]): int(card.get("note", card.get("noteId")))
-        for card in cards
-        if "cardId" in card and card.get("note", card.get("noteId")) is not None
-    }
-    history = calculate_history(reviews, timezone, now, card_notes)
+    history = calculate_history(reviews, timezone, now)
     state = calculate_deck_state(note_ids, cards, deck_stats, deck)
     return {
         "deck": deck,

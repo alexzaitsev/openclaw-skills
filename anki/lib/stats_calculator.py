@@ -27,7 +27,6 @@ def calculate_history(
     rows: Iterable[object],
     timezone: str,
     now: datetime | None = None,
-    card_notes: dict[int, int] | None = None,
 ) -> dict[str, Any]:
     """Aggregate Anki review-log rows into yesterday and two seven-day windows."""
     tz = ZoneInfo(timezone)
@@ -62,7 +61,6 @@ def calculate_history(
                 {
                     "timestamp_ms": timestamp_ms,
                     "card_id": card_id,
-                    "note_id": (card_notes or {}).get(card_id),
                     "rating": rating,
                     "duration_ms": duration_ms,
                     "review_type": review_type,
@@ -120,23 +118,23 @@ def calculate_deck_state(
         )
         card_count += 1
 
-    introduced = 0
-    mature = 0
+    studying_cards = 0
+    mature_cards = 0
     for note_id in notes:
         active = [card for card in cards_by_note.get(note_id, []) if card["queue"] != -1]
         if not active:
             continue
-        if any(card["type"] != 0 for card in active):
-            introduced += 1
-        if all(card["type"] != 0 and card["interval"] >= 21 for card in active):
-            mature += 1
+        studying_cards += sum(card["type"] != 0 for card in active)
+        mature_cards += sum(
+            card["type"] != 0 and card["interval"] >= 21 for card in active
+        )
 
     stats = _select_deck_stats(deck_stats, deck)
     return {
-        "learning_items": len(notes),
-        "introduced_items": introduced,
-        "mature_items": mature,
         "cards": card_count,
+        "unstarted_cards": card_count - studying_cards - mature_cards,
+        "studying_cards": studying_cards,
+        "mature_cards": mature_cards,
         "due_new": _required_int(stats, "new_count"),
         "due_learning": _required_int(stats, "learn_count"),
         "due_review": _required_int(stats, "review_count"),
@@ -153,6 +151,13 @@ def _localized_now(tz: ZoneInfo, now: datetime | None) -> datetime:
 
 def _period(events: list[dict[str, Any]], dates: set[date]) -> dict[str, Any]:
     selected = [event for event in events if event["date"] in dates]
+    card_ids = {event["card_id"] for event in selected}
+    new_card_ids = {
+        event["card_id"] for event in selected if event["review_type"] == 0
+    }
+    final_by_card: dict[int, dict[str, Any]] = {}
+    for event in selected:
+        final_by_card[event["card_id"]] = event
     first_answers: dict[tuple[int, date], dict[str, Any]] = {}
     for event in selected:
         first_answers.setdefault((event["card_id"], event["date"]), event)
@@ -162,22 +167,16 @@ def _period(events: list[dict[str, Any]], dates: set[date]) -> dict[str, Any]:
     passes = sum(event["rating"] != 1 for event in selected)
     return {
         "answers": answers,
-        "unique_cards": len({event["card_id"] for event in selected}),
-        "unique_items": len(
-            {
-                event["note_id"]
-                if event["note_id"] is not None
-                else event["card_id"]
-                for event in selected
-            }
-        ),
-        "new_cards": len(
-            {event["card_id"] for event in selected if event["review_type"] == 0}
-        ),
+        "unique_cards": len(card_ids),
+        "new_cards": len(new_card_ids),
+        "review_cards": len(card_ids - new_card_ids),
         "duration_ms": sum(event["duration_ms"] for event in selected),
         "again": sum(event["rating"] == 1 for event in selected),
         "answer_passes": passes,
         "answer_pass_rate": passes / answers if answers else None,
+        "final_card_passes": sum(
+            event["rating"] != 1 for event in final_by_card.values()
+        ),
         "true_passes": true_passes,
         "true_total": true_total,
         "true_retention": true_passes / true_total if true_total else None,

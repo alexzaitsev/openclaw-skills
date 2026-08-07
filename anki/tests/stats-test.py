@@ -49,12 +49,13 @@ class StatisticsTest(unittest.TestCase):
             review("2026-07-13T08:00:00", 4, 3, 4000),
             review("2026-07-12T08:00:00", 5, 1, 5000),
         ]
-        result = calculate_history(rows, "America/Edmonton", NOW, {1: 10, 2: 11})
+        result = calculate_history(rows, "America/Edmonton", NOW)
         yesterday = result["yesterday"]
         self.assertEqual(yesterday["answers"], 3)
         self.assertEqual(yesterday["unique_cards"], 2)
-        self.assertEqual(yesterday["unique_items"], 2)
         self.assertEqual(yesterday["new_cards"], 0)
+        self.assertEqual(yesterday["review_cards"], 2)
+        self.assertEqual(yesterday["final_card_passes"], 2)
         self.assertEqual(yesterday["duration_ms"], 6000)
         self.assertEqual(yesterday["again"], 1)
         self.assertAlmostEqual(yesterday["answer_pass_rate"], 2 / 3)
@@ -82,7 +83,7 @@ class StatisticsTest(unittest.TestCase):
         self.assertEqual(result["report_date"], "2026-03-08")
         self.assertEqual(result["yesterday"]["answers"], 1)
 
-    def test_deck_state_counts_notes_not_directional_cards(self) -> None:
+    def test_deck_state_counts_cards(self) -> None:
         cards = [
             {"note": 1, "queue": 2, "type": 2, "interval": 30},
             {"note": 1, "queue": 2, "type": 2, "interval": 40},
@@ -99,10 +100,10 @@ class StatisticsTest(unittest.TestCase):
             }
         }
         state = calculate_deck_state([1, 2, 3], cards, stats, "Español")
-        self.assertEqual(state["learning_items"], 3)
-        self.assertEqual(state["introduced_items"], 1)
-        self.assertEqual(state["mature_items"], 1)
         self.assertEqual(state["cards"], 5)
+        self.assertEqual(state["unstarted_cards"], 1)
+        self.assertEqual(state["studying_cards"], 2)
+        self.assertEqual(state["mature_cards"], 2)
         self.assertEqual(state["due_review"], 63)
 
     def test_report_is_deterministic_and_contains_only_requested_metrics(self) -> None:
@@ -112,10 +113,10 @@ class StatisticsTest(unittest.TestCase):
             NOW,
         )
         state = {
-            "learning_items": 1,
-            "introduced_items": 1,
-            "mature_items": 0,
             "cards": 2,
+            "unstarted_cards": 1,
+            "studying_cards": 1,
+            "mature_cards": 0,
             "due_new": 1,
             "due_learning": 0,
             "due_review": 2,
@@ -125,10 +126,10 @@ class StatisticsTest(unittest.TestCase):
             report,
             "🇪🇸 Испанский · Español\n\n"
             "Вчера · вс 19 июля\n"
-            "1 элемент · 1 новый · 1 с\n"
-            "Отвечено: 100%\n\n"
+            "0 к повторению · 1 новый · 1 с\n"
+            "Отвечено: 1 из 1\n\n"
             "Сегодня · пн 20 июля\n"
-            "1 элемент · 1 начато · 0 закреплено\n"
+            "1 не начато · 1 в изучении · 0 закреплено\n"
             "2 к повторению · 1 новых",
         )
         self.assertNotIn("||", report)
