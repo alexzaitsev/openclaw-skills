@@ -126,12 +126,12 @@ class StatisticsTest(unittest.TestCase):
             report,
             "**🇪🇸 Испанский · Español**\n\n"
             "**Сегодня: пн 20 июля**\n"
-            "| \u200b | \u200b |\n"
+            "| Показатель | Карточки |\n"
             "| :-- | --: |\n"
             "| Повторить | 2 |\n"
             "| Новых | 1 |\n\n"
             "**Прогресс**\n"
-            "| \u200b | \u200b |\n"
+            "| Показатель | Значение |\n"
             "| :-- | --: |\n"
             "| Не начато | 50% (1) |\n"
             "| Изучается | 50% (1) |\n"
@@ -139,7 +139,6 @@ class StatisticsTest(unittest.TestCase):
             "| Новых на | 1 день |",
         )
         self.assertNotIn("Вчера", report)
-        self.assertNotIn("Показатель", report)
         self.assertNotIn("вперед", report)
         self.assertNotIn("```", report)
         self.assertNotIn("||", report)

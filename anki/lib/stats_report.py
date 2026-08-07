@@ -37,6 +37,7 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
         "",
         f"**Сегодня: {_display_date(run_date)}**",
         *_table(
+            "Карточки",
             (
                 ("Повторить", state["due_review"]),
                 ("Новых", state["due_new"]),
@@ -45,6 +46,7 @@ def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> 
         "",
         "**Прогресс**",
         *_table(
+            "Значение",
             (
                 (
                     "Не начато",
@@ -94,10 +96,12 @@ def _report_duration(milliseconds: int) -> str:
     return f"{max(0, milliseconds // 60_000)} мин"
 
 
-def _table(rows: tuple[tuple[str, int | str], ...]) -> tuple[str, ...]:
-    """Render a native Telegram table with a visually blank technical header."""
+def _table(
+    value_header: str, rows: tuple[tuple[str, int | str], ...]
+) -> tuple[str, ...]:
+    """Render a native Telegram table with the requested column headers."""
     return (
-        "| \u200b | \u200b |",
+        f"| Показатель | {value_header} |",
         "| :-- | --: |",
         *(f"| {label} | {value} |" for label, value in rows),
     )
