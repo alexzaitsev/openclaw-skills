@@ -48,6 +48,7 @@ def calculate_history(
             card_id = int(raw[1])
             rating = int(raw[3])
             duration_ms = max(0, int(raw[7]))
+            review_type = int(raw[8])
         except (TypeError, ValueError) as exc:
             raise StatsDataError("AnkiConnect returned a non-numeric review row.") from exc
         if rating not in {1, 2, 3, 4}:
@@ -60,6 +61,7 @@ def calculate_history(
                     "card_id": card_id,
                     "rating": rating,
                     "duration_ms": duration_ms,
+                    "review_type": review_type,
                     "date": local_date,
                 }
             )
@@ -157,6 +159,9 @@ def _period(events: list[dict[str, Any]], dates: set[date]) -> dict[str, Any]:
     return {
         "answers": answers,
         "unique_cards": len({event["card_id"] for event in selected}),
+        "new_cards": len(
+            {event["card_id"] for event in selected if event["review_type"] == 0}
+        ),
         "duration_ms": sum(event["duration_ms"] for event in selected),
         "again": sum(event["rating"] == 1 for event in selected),
         "answer_passes": passes,

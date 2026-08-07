@@ -13,23 +13,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "lib"))
 
 from stats_calculator import calculate_deck_state, calculate_history  # noqa: E402
-from stats_report import (  # noqa: E402
-    _comparison_line,
-    _count,
-    _display_date,
-    format_duration,
-    render_compact_report,
-    render_report,
-)
+from stats_report import _count, _display_date, format_duration, render_report  # noqa: E402
 
 
 TZ = ZoneInfo("America/Edmonton")
 NOW = datetime(2026, 7, 20, 12, 0, tzinfo=TZ)
 
 
-def review(when: str, card: int, rating: int, duration: int) -> list[int]:
+def review(
+    when: str, card: int, rating: int, duration: int, review_type: int = 1
+) -> list[int]:
     timestamp = int(datetime.fromisoformat(when).replace(tzinfo=TZ).timestamp() * 1000)
-    return [timestamp, card, 0, rating, 1, 1, 2500, duration, 1]
+    return [timestamp, card, 0, rating, 1, 1, 2500, duration, review_type]
 
 
 class StatisticsTest(unittest.TestCase):
@@ -45,14 +40,6 @@ class StatisticsTest(unittest.TestCase):
         self.assertEqual(_count(21, *forms), "21 ответ")
         self.assertEqual(_count(22, *forms), "22 ответа")
 
-    def test_comparison_shows_answer_change_only(self) -> None:
-        current = {"answers": 180, "true_retention": 0.97}
-        previous = {"answers": 134, "true_retention": 0.98}
-        self.assertEqual(
-            _comparison_line(current, previous),
-            "**Запоминание 97%** · ответы +34%",
-        )
-
     def test_history_metrics_distinguish_answers_cards_and_first_attempts(self) -> None:
         rows = [
             review("2026-07-19T08:00:00", 1, 1, 1000),
@@ -66,6 +53,7 @@ class StatisticsTest(unittest.TestCase):
         yesterday = result["yesterday"]
         self.assertEqual(yesterday["answers"], 3)
         self.assertEqual(yesterday["unique_cards"], 2)
+        self.assertEqual(yesterday["new_cards"], 0)
         self.assertEqual(yesterday["duration_ms"], 6000)
         self.assertEqual(yesterday["again"], 1)
         self.assertAlmostEqual(yesterday["answer_pass_rate"], 2 / 3)
@@ -116,9 +104,9 @@ class StatisticsTest(unittest.TestCase):
         self.assertEqual(state["cards"], 5)
         self.assertEqual(state["due_review"], 63)
 
-    def test_report_is_markdown_deterministic_and_bounded(self) -> None:
+    def test_report_is_deterministic_and_contains_only_requested_metrics(self) -> None:
         history = calculate_history(
-            [review("2026-07-19T08:00:00", 1, 3, 1000)],
+            [review("2026-07-19T08:00:00", 1, 3, 1000, review_type=0)],
             "America/Edmonton",
             NOW,
         )
@@ -132,52 +120,20 @@ class StatisticsTest(unittest.TestCase):
             "due_review": 2,
         }
         report = render_report("Español", history, state)
-        self.assertIn("**🇪🇸 Испанский · Español**", report)
-        self.assertNotIn("Отчёт за", report)
-        self.assertNotIn("America/Edmonton", report)
-        self.assertLess(
-            report.index("**Сегодня · пн 20 июля**"),
-            report.index("**Вчера · вс 19 июля**"),
-        )
-        self.assertLess(
-            report.index("**Вчера · вс 19 июля**"),
-            report.index("**Последние 7 дней**"),
-        )
-        self.assertIn(
-            "**Вчера · вс 19 июля**\n"
-            "||1 ответ · 1 карточка · 1 с\n"
-            "Снова 0 · успешных ответов 100%\n"
-            "**Запоминание 100%** (1/1)||",
+        self.assertEqual(
             report,
+            "🇪🇸 Испанский · Español\n\n"
+            "Вчера · вс 19 июля\n"
+            "1 элемент · 1 новый · 1 с\n"
+            "Отвечено: 100%\n\n"
+            "Сегодня · пн 20 июля\n"
+            "1 элемент · 1 начато · 0 закреплено\n"
+            "2 к повторению · 1 новых",
         )
-        self.assertIn("**Вчера · вс 19 июля**", report)
-        self.assertIn("**Запоминание 100%** (1/1)", report)
-        self.assertIn("**Последние 7 дней**\n||Пн 0 · —", report)
-        self.assertIn("Вс 1 · 100%", report)
-        self.assertIn("**1 ответ** · 1/7 дней", report)
-        self.assertIn("||", report)
-        self.assertIn("**Сегодня · пн 20 июля**", report)
-        self.assertNotIn("Доступно сейчас", report)
-        self.assertNotIn("карточек", report)
-        self.assertIn("1 элемент · 1 начато · 0 закреплено", report)
-        self.assertLessEqual(len(report), 4096)
-
-        compact = render_compact_report("Español", history, state)
-        self.assertIn("**🇪🇸 Испанский · Español**", compact)
-        self.assertLess(
-            compact.index("**Сегодня · пн 20 июля:**"),
-            compact.index("**Вчера · вс 19 июля**"),
-        )
-        self.assertIn("**Вчера · вс 19 июля**\n||1 ответ", compact)
-        self.assertIn("**Последние 7 дней**\n||**1 ответ**", compact)
-        self.assertIn(
-            "**Сегодня · пн 20 июля:** "
-            "1 элемент · 1 начато · 0 закреплено",
-            compact,
-        )
-        self.assertIn("0 закреплено", compact)
-        self.assertNotIn("Доступно", compact)
-        self.assertNotIn("карточек", compact)
+        self.assertNotIn("||", report)
+        self.assertNotIn("Последние 7 дней", report)
+        self.assertNotIn("Запоминание", report)
+        self.assertNotIn("Снова", report)
 
 
 if __name__ == "__main__":

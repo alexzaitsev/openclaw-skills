@@ -30,9 +30,9 @@ ACTIONS = Path(sys.argv[2])
 TZ = ZoneInfo("America/Edmonton")
 
 
-def review(when, card, rating, duration):
+def review(when, card, rating, duration, review_type=1):
     timestamp = int(datetime.fromisoformat(when).replace(tzinfo=TZ).timestamp() * 1000)
-    return [timestamp, card, 0, rating, 1, 1, 2500, duration, 1]
+    return [timestamp, card, 0, rating, 1, 1, 2500, duration, review_type]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -54,9 +54,9 @@ class Handler(BaseHTTPRequestHandler):
         elif action == "cardReviews":
             if params["deck"] == "Español":
                 result = [
-                    review("2026-07-19T08:00:00", 101, 1, 1000),
-                    review("2026-07-19T08:05:00", 101, 3, 2000),
-                    review("2026-07-19T09:00:00", 102, 4, 3000),
+                    review("2026-07-19T08:00:00", 101, 1, 1000, 0),
+                    review("2026-07-19T08:05:00", 101, 3, 2000, 0),
+                    review("2026-07-19T09:00:00", 102, 4, 3000, 0),
                     review("2026-07-13T09:00:00", 103, 3, 4000),
                     review("2026-07-12T09:00:00", 104, 1, 5000),
                 ]
@@ -121,21 +121,22 @@ grep -F '"declaration_key": "anki-stats:espanol"' "$TMP_DIR/settings.json" >/dev
 grep -F '"enabled": false' "$TMP_DIR/settings.json" >/dev/null
 
 "$ROOT/bin/anki-stats" preview --deck Español > "$TMP_DIR/preview.txt"
-grep -F "**🇪🇸 Испанский · Español**" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "**Вчера · вс 19 июля**" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "**Сегодня · пн 20 июля**" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "🇪🇸 Испанский · Español" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "Вчера · вс 19 июля" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "Сегодня · пн 20 июля" "$TMP_DIR/preview.txt" >/dev/null
 if grep -F "Отчёт за" "$TMP_DIR/preview.txt" >/dev/null; then
   exit 1
 fi
-grep -F "3 ответа · 2 карточки · 6 с" "$TMP_DIR/preview.txt" >/dev/null
-grep -F "**Запоминание 50%** (1/2)" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "2 элемента · 2 новых · 6 с" "$TMP_DIR/preview.txt" >/dev/null
+grep -F "Отвечено: 67%" "$TMP_DIR/preview.txt" >/dev/null
 grep -F "2 элемента · 1 начато · 1 закреплён" "$TMP_DIR/preview.txt" >/dev/null
-if grep -E "Доступно сейчас|карточек|неделей ранее" "$TMP_DIR/preview.txt" >/dev/null; then
+grep -F "63 к повторению · 12 новых" "$TMP_DIR/preview.txt" >/dev/null
+if grep -E 'Доступно сейчас|карточек|неделей ранее|Последние 7 дней|Запоминание|\|\|' "$TMP_DIR/preview.txt" >/dev/null; then
   exit 1
 fi
 
 "$ROOT/bin/anki-stats-worker" --deck Español > "$TMP_DIR/worker.txt"
-grep -F "**🇪🇸 Испанский · Español**" "$TMP_DIR/worker.txt" >/dev/null
+grep -F "🇪🇸 Испанский · Español" "$TMP_DIR/worker.txt" >/dev/null
 [[ "$(grep -c '^sync$' "$TMP_DIR/actions.log")" -eq 1 ]]
 
 "$ROOT/bin/anki-stats" configure \

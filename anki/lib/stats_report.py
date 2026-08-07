@@ -26,124 +26,45 @@ MONTH_LABELS = (
     "ноября",
     "декабря",
 )
-TELEGRAM_LIMIT = 4096
-
-
 def render_report(deck: str, history: dict[str, Any], state: dict[str, int]) -> str:
     flag, label = DECK_LABELS[deck]
     report_date = date.fromisoformat(history["report_date"])
     run_date = report_date + timedelta(days=1)
     yesterday = history["yesterday"]
-    current = history["current"]
-    previous = history["previous"]
-    yesterday_answers = _count(
-        yesterday["answers"], "ответ", "ответа", "ответов"
-    )
-    yesterday_cards = _count(
+    yesterday_items = _count(
         yesterday["unique_cards"],
-        "карточка",
-        "карточки",
-        "карточек",
+        "элемент",
+        "элемента",
+        "элементов",
     )
-    current_answers = _count(
-        current["answers"], "ответ", "ответа", "ответов"
-    )
+    yesterday_new = _count(yesterday["new_cards"], "новый", "новых", "новых")
     learning_items = _count(
         state["learning_items"], "элемент", "элемента", "элементов"
     )
-
-    yesterday_lines = [
+    lines = [
+        f"{flag} {label} · {deck}",
+        "",
+        f"Вчера · {_display_date(report_date)}",
         (
-            f"{yesterday_answers} · {yesterday_cards} · "
+            f"{yesterday_items} · {yesterday_new} · "
             f"{format_duration(yesterday['duration_ms'])}"
         ),
-        (
-            f"Снова {yesterday['again']} · успешных ответов "
-            f"{format_percent(yesterday['answer_pass_rate'])}"
-        ),
-        (
-            f"**Запоминание {format_percent(yesterday['true_retention'])}** "
-            f"({yesterday['true_passes']}/{yesterday['true_total']})"
-        ),
-    ]
-    seven_day_lines = []
-    for day in history["days"]:
-        parsed = date.fromisoformat(day["date"])
-        seven_day_lines.append(
-            f"{WEEKDAY_LABELS[parsed.weekday()]} {day['answers']} · "
-            f"{format_percent(day['true_retention'])}"
-        )
-    seven_day_lines.extend(
-        [
-            (
-                f"**{current_answers}** · {current['days_studied']}/7 дней · "
-                f"{current['average_answers']}/день · "
-                f"{format_duration(current['duration_ms'])}"
-            ),
-            _comparison_line(current, previous),
-        ]
-    )
-    lines = [
-        f"**{flag} {label} · {deck}**",
+        f"Отвечено: {format_percent(yesterday['answer_pass_rate'])}",
         "",
-        f"**Сегодня · {_display_date(run_date)}**",
+        f"Сегодня · {_display_date(run_date)}",
         (
             f"{learning_items} · {state['introduced_items']} начато · "
             f"{state['mature_items']} {_mature_word(state['mature_items'])}"
         ),
-        "",
-        f"**Вчера · {_display_date(report_date)}**",
-        _spoiler(yesterday_lines),
-        "",
-        "**Последние 7 дней**",
-        _spoiler(seven_day_lines),
+        f"{state['due_review']} к повторению · {state['due_new']} новых",
     ]
-    report = "\n".join(lines)
-    if len(report) <= TELEGRAM_LIMIT:
-        return report
-    return render_compact_report(deck, history, state)
+    return "\n".join(lines)
 
 
 def render_compact_report(
     deck: str, history: dict[str, Any], state: dict[str, int]
 ) -> str:
-    flag, label = DECK_LABELS[deck]
-    report_date = date.fromisoformat(history["report_date"])
-    run_date = report_date + timedelta(days=1)
-    yesterday = history["yesterday"]
-    current = history["current"]
-    yesterday_answers = _count(
-        yesterday["answers"], "ответ", "ответа", "ответов"
-    )
-    current_answers = _count(
-        current["answers"], "ответ", "ответа", "ответов"
-    )
-    learning_items = _count(
-        state["learning_items"], "элемент", "элемента", "элементов"
-    )
-    return "\n".join(
-        [
-            f"**{flag} {label} · {deck}**",
-            f"**Сегодня · {_display_date(run_date)}:** "
-            f"{learning_items} · {state['introduced_items']} начато · "
-            f"{state['mature_items']} {_mature_word(state['mature_items'])}",
-            f"**Вчера · {_display_date(report_date)}**",
-            _spoiler(
-                [
-                    f"{yesterday_answers} · "
-                    f"запоминание {format_percent(yesterday['true_retention'])}"
-                ]
-            ),
-            "**Последние 7 дней**",
-            _spoiler(
-                [
-                    f"**{current_answers}** · запоминание "
-                    f"{format_percent(current['true_retention'])} · "
-                    f"{current['days_studied']}/7 дней"
-                ]
-            ),
-        ]
-    )
+    return render_report(deck, history, state)
 
 
 def format_duration(milliseconds: int) -> str:
@@ -159,11 +80,6 @@ def format_duration(milliseconds: int) -> str:
 
 def format_percent(value: float | None) -> str:
     return "—" if value is None else f"{round(value * 100)}%"
-
-
-def _spoiler(lines: list[str]) -> str:
-    """Wrap one section's content in Telegram's Markdown spoiler syntax."""
-    return "||" + "\n".join(lines) + "||"
 
 
 def _display_date(value: date) -> str:
@@ -189,16 +105,3 @@ def _mature_word(value: int) -> str:
     """Return the compact maturity label used in the deck-state summary."""
     remainder_100 = abs(value) % 100
     return "закреплён" if remainder_100 % 10 == 1 and remainder_100 != 11 else "закреплено"
-
-
-def _comparison_line(current: dict[str, Any], previous: dict[str, Any]) -> str:
-    previous_answers = previous["answers"]
-    if previous_answers == 0 and current["answers"] > 0:
-        answer_change = "ответы: новая активность"
-    elif previous_answers == 0:
-        answer_change = "ответы 0%"
-    else:
-        change = round((current["answers"] - previous_answers) * 100 / previous_answers)
-        answer_change = f"ответы {change:+d}%"
-
-    return f"**Запоминание {format_percent(current['true_retention'])}** · {answer_change}"
